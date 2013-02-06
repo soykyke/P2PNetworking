@@ -4,6 +4,8 @@ import sys, traceback
 import xmlrpclib
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
+from PyQt4 import QtCore, QtGui
+
 
 TTL = 50
 
@@ -20,10 +22,12 @@ def prod_handler(a,b):
 def init(neighbouringCapacity, pid, IPaddr, portno):
 	global peer
 	peer = Peer(neighbouringCapacity, pid, IPaddr, portno)
+	peer.start()
 
 def superinit(neighbouringCapacity, IPaddr, portno):
 	global peer
 	peer = SuperPeer(neighbouringCapacity, IPaddr, portno)
+	peer.start()
 
 def whoami():
 	print "name:", peer.name, "pid:", peer.pid
@@ -33,7 +37,7 @@ def plist():
 	print peer.plist
 
 def hello(pid):
-	print 'hello'
+	print peer.pid, peer.name, peer.msgid, TTL
 	s = xmlrpclib.ServerProxy('http://' + pid)
 	#print "methods: ", s.system.listMethods()
 	s.ping(peer.pid, peer.name, peer.msgid, TTL)
@@ -45,9 +49,9 @@ def hello(pid):
 
 # Restrict to a particular path.
 class RequestHandler(SimpleXMLRPCRequestHandler):
-    rpc_paths = ('/RPC2',)
+    rpc_paths = ('/', '/RPC2')
 
-class Peer(object):
+class Peer(QtCore.QThread, object):
 	#inherits of a SimpleXMLRPCServer (this way, one IP adress is allocated to the Peer)
 	#Peer Class
 		#Attributes:
@@ -61,6 +65,7 @@ class Peer(object):
 	
 	def __init__(self, neighbouringCapacity, name, IPaddr, portno):
 		#Class constructor
+		QtCore.QThread.__init__(self)
 		
 		self.neighbouringCapacity = neighbouringCapacity
 		self.name = "P"+str(name)
@@ -70,7 +75,9 @@ class Peer(object):
 		self.plist = set()		# A set of tuples (pid, name)
 		self.msgid = 0
 		self.seen_msgs = set()	# A set of tuples (msgid, source-pid)
-		
+	
+	def run(self):
+		print "run"
 		self.server = SimpleXMLRPCServer((self.IPaddr, self.portno), requestHandler=RequestHandler)
 		#########################################################################################################
 		#self=SimpleXMLRPCServer(self,("localhost", 8000),requestHandler=RequestHandler)
@@ -81,6 +88,8 @@ class Peer(object):
 		#print Peer.ping
 		#self.register_introspection_functions()
 		self.server.register_instance(self)
+		self.server.serve_forever()
+		print "SERVER DONE"
 		#self.register_function(Peer.ping)
 		#self.register_function(Peer.pong)
 		
@@ -99,6 +108,7 @@ class Peer(object):
 		#Peer.portCounter+=1
 	
 	def ping(self, pid, name, msgid, TTL):
+		print "ping"
 		TTL -= 1
 		if (msgid, pid) in self.seen_msgs: return
 		if TTL > 0:
@@ -142,6 +152,7 @@ if __name__=='__main__':
 		print '='*23 + ':'
 	
 	def execute_command(c):
+		#print c
 		if c[0] in commands:
 			commands[c[0]][0](*(commands[c[0]][1] + c[1:]))
 		else:
@@ -150,29 +161,29 @@ if __name__=='__main__':
 	# If arguments are passed to command line, execute right away
 	if len(sys.argv) > 1:
 		try:
-			c = " ".join(sys.argv[1:])
+			c = tuple(sys.argv[1:])
 			execute_command(c)
 		except Exception as e:
 			print 'Error:', e
 			traceback.print_exc()
 	
-	else:
-		# Read command input
-		while True:
-			try:
-				c = tuple(raw_input('PEER >> ').split())
-				if c[0] == 'exit': break
-				elif c[0] == '': continue
-				elif c[0] == 'help' or c[0] == 'usage' or c[0] == '?':
-					usage()
-					continue
-				execute_command(c)
-			except EOFError:
-				break
-			except Exception as e:
-				print 'Error:', e
-				traceback.print_exc()
+	#else:
+	# Read command input
+	while True:
+		try:
+			c = tuple(raw_input('PEER >> ').split())
+			if c[0] == 'exit': break
+			elif c[0] == '': continue
+			elif c[0] == 'help' or c[0] == 'usage' or c[0] == '?':
+				usage()
 				continue
+			execute_command(c)
+		except EOFError:
+			break
+		except Exception as e:
+			print 'Error:', e
+			traceback.print_exc()
+			continue
 
 
 	print "Exiting..."
