@@ -5,6 +5,7 @@ import xmlrpclib
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
 from PyQt4 import QtCore, QtGui
+import threading 
 
 
 TTL = 50
@@ -39,12 +40,38 @@ def plist():
 def hello(pid):
 	print 'hello'
 	print peer.pid, peer.name, peer.msgid, TTL
-	
-	s = xmlrpclib.ServerProxy('http://' + pid)
+	print 'adding', pid ,'on seen_msgs'
+	peer.seen_msgs.add( (peer.msgid, peer.pid) )
+	print 'seen_msgs', peer.seen_msgs
 	#print "methods: ", s.system.listMethods()
-	s.ping(peer.pid, peer.name, peer.msgid, TTL, peer.pid)
+	#t = threading.Thread(target=s.ping, args=(peer.pid, peer.name, peer.msgid, TTL, peer.pid, ))  
+	#print 'staring thread...'
+	#t.start()  
+	#send_message(pid, peer.pid, peer.name, peer.msgid, TTL, peer.pid) 
+	#s.ping(peer.pid, peer.name, peer.msgid, TTL, peer.pid)
+	m = PingMessage(pid, peer.pid, peer.name, peer.msgid, TTL, peer.pid)
+	m.start()
 	peer.msgid += 1
 	print 'bye hello'
+
+class PingMessage(threading.Thread):
+	def __init__(self, to, pid, name, msgid, TTL, lastPeer):
+		threading.Thread.__init__(self)
+		self.s = xmlrpclib.ServerProxy('http://' + to)
+		self.pid= pid
+		self.name = name
+		self.msgid = msgid
+		self.TTL = TTL
+		self.lastPeer = lastPeer
+	
+	def run(self):
+		print 'pid', self.pid, 'name', self.name, 'msgid', self.msgid, 'TTL', self.TTL, 'lastPeer', self.lastPeer
+		self.s.ping(self.pid, self.name, self.msgid, self.TTL, self.lastPeer)
+	
+
+def proof():
+	t = threading.Thread(target=pof, args=(3,4))
+	t.start()
 
 
 
@@ -122,8 +149,11 @@ class Peer(QtCore.QThread, object):
 				print p, lastPeer
 				if p == lastPeer: continue
 				print 'doing pings to my list', p,n
-				s = xmlrpclib.ServerProxy('http://' + p)
-				s.ping(pid, name, msgid, TTL, self.pid)
+				m = PingMessage(p, pid, name, msgid, TTL, self.pid)
+				#s = xmlrpclib.ServerProxy('http://' + p)
+				#t = threading.Thread(target=s.ping, args=(pid, name, msgid, TTL, self.pid, ))  
+				m.start()  
+				#s.ping(pid, name, msgid, TTL, self.pid)
 		
 		print 'adding to my plist'		
 		self.plist.add( (pid, name) )
