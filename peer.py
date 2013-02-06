@@ -37,10 +37,12 @@ def plist():
 	print peer.plist
 
 def hello(pid):
+	print 'hello'
 	print peer.pid, peer.name, peer.msgid, TTL
+	
 	s = xmlrpclib.ServerProxy('http://' + pid)
 	#print "methods: ", s.system.listMethods()
-	s.ping(peer.pid, peer.name, peer.msgid, TTL)
+	s.ping(peer.pid, peer.name, peer.msgid, TTL, peer.pid)
 	peer.msgid += 1
 	print 'bye hello'
 
@@ -77,8 +79,9 @@ class Peer(QtCore.QThread, object):
 		self.seen_msgs = set()	# A set of tuples (msgid, source-pid)
 	
 	def run(self):
-		print "run"
-		self.server = SimpleXMLRPCServer((self.IPaddr, self.portno), requestHandler=RequestHandler)
+		print "run server"
+		print 'IPaddr', self.IPaddr, 'portno', self.portno
+		self.server = SimpleXMLRPCServer((self.IPaddr, self.portno),requestHandler=RequestHandler)
 		#########################################################################################################
 		#self=SimpleXMLRPCServer(self,("localhost", 8000),requestHandler=RequestHandler)
 		#########################################################################################################
@@ -107,21 +110,38 @@ class Peer(QtCore.QThread, object):
 		#Peer.peersCounter+=1
 		#Peer.portCounter+=1
 	
-	def ping(self, pid, name, msgid, TTL):
+	def ping(self, pid, name, msgid, TTL, lastPeer):
 		print "ping"
 		TTL -= 1
 		if (msgid, pid) in self.seen_msgs: return
 		if TTL > 0:
+			print 'adding', pid ,'on seen_msgs'
 			self.seen_msgs.add( (msgid, pid) )
+			print 'seen_msgs', self.seen_msgs
 			for p,n in self.plist:
+				print p, lastPeer
+				if p == lastPeer: continue
+				print 'doing pings to my list', p,n
 				s = xmlrpclib.ServerProxy('http://' + p)
-				s.ping(pid, msgid, TTL)
+				s.ping(pid, name, msgid, TTL, self.pid)
+		
+		print 'adding to my plist'		
 		self.plist.add( (pid, name) )
+		print 'plist', self.plist
+		print 'call to pong', pid
 		s = xmlrpclib.ServerProxy('http://' + pid)
 		s.pong(self.pid, self.name)
+		print 'bye ping'
+		return True
 	
 	def pong(self, pid, name):
+		print 'pong'
+		print 'pid', pid, 'name', name
+		print 'adding to plist...'
 		self.plist.add( (pid, name) )
+		print 'plist', self.plist
+		print 'bye pong'
+		return True
 
 class SuperPeer(Peer):
 	def __init__(self, neighbouringCapacity, IPaddr, portno):
