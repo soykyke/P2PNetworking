@@ -39,12 +39,36 @@ def plist():
 def hello(pid):
 	print peer.pid, peer.name, peer.msgid, TTL
 	s = xmlrpclib.ServerProxy('http://' + pid)
+	#print "POWER", s.power(peer.pid, 10, 3)
 	#print "methods: ", s.system.listMethods()
+	print "HELLO STARTS!"
+	#try:
+	print "1"
 	s.ping(peer.pid, peer.name, peer.msgid, TTL)
+	print "2"
+	#~ except xmlrpclib.Fault as err:
+		#~ print "A fault occurred"
+		#~ print "Fault code: %d" % err.faultCode
+		#~ print "Fault string: %s" % err.faultString
+	#~ except xmlrpclib.ProtocolError as err:
+		#~ print "A protocol error occurred"
+		#~ print "URL: %s" % err.url
+		#~ print "HTTP/HTTPS headers: %s" % err.headers
+		#~ print "Error code: %d" % err.errcode
+		#~ print "Error message: %s" % err.errmsg
+	print "HELLO HERE!"
 	peer.msgid += 1
-	print 'bye hello'
+	print "HELLO OK!"
 
 
+
+def power(sender, a,b):
+	print "sender:", sender
+	s = xmlrpclib.ServerProxy('http://'+sender)
+	print "ADDS", s.adds(10, 4)
+	return a**b
+def adds(a,b):
+	return a+b
 
 
 # Restrict to a particular path.
@@ -78,7 +102,8 @@ class Peer(QtCore.QThread, object):
 	
 	def run(self):
 		print "run"
-		self.server = SimpleXMLRPCServer((self.IPaddr, self.portno), requestHandler=RequestHandler)
+		self.server = SimpleXMLRPCServer((self.IPaddr, self.portno))
+		#self.server = SimpleXMLRPCServer((self.IPaddr, self.portno), requestHandler=RequestHandler)
 		#########################################################################################################
 		#self=SimpleXMLRPCServer(self,("localhost", 8000),requestHandler=RequestHandler)
 		#########################################################################################################
@@ -87,6 +112,8 @@ class Peer(QtCore.QThread, object):
 		
 		#print Peer.ping
 		#self.register_introspection_functions()
+		self.server.register_function(power)
+		self.server.register_function(adds)
 		self.server.register_instance(self)
 		self.server.serve_forever()
 		print "SERVER DONE"
@@ -108,20 +135,50 @@ class Peer(QtCore.QThread, object):
 		#Peer.portCounter+=1
 	
 	def ping(self, pid, name, msgid, TTL):
-		print "ping"
 		TTL -= 1
 		if (msgid, pid) in self.seen_msgs: return
 		if TTL > 0:
 			self.seen_msgs.add( (msgid, pid) )
 			for p,n in self.plist:
+				print "FORWARDING TO", p, n
 				s = xmlrpclib.ServerProxy('http://' + p)
-				s.ping(pid, msgid, TTL)
+				#try:
+				s.ping(pid, name, msgid, TTL)
+				#~ except xmlrpclib.Fault as err:
+					#~ print "A fault occurred"
+					#~ print "Fault code: %d" % err.faultCode
+					#~ print "Fault string: %s" % err.faultString
+				#~ except xmlrpclib.ProtocolError as err:
+					#~ print "A protocol error occurred"
+					#~ print "URL: %s" % err.url
+					#~ print "HTTP/HTTPS headers: %s" % err.headers
+					#~ print "Error code: %d" % err.errcode
+					#~ print "Error message: %s" % err.errmsg
 		self.plist.add( (pid, name) )
+		print 'PING', pid
 		s = xmlrpclib.ServerProxy('http://' + pid)
+		#try:
 		s.pong(self.pid, self.name)
+		#~ except xmlrpclib.Fault as err:
+			#~ print "A fault occurred"
+			#~ print "Fault code: %d" % err.faultCode
+			#~ print "Fault string: %s" % err.faultString
+		#~ except xmlrpclib.ProtocolError as err:
+			#~ print "A protocol error occurred"
+			#~ print "URL: %s" % err.url
+			#~ print "HTTP/HTTPS headers: %s" % err.headers
+			#~ print "Error code: %d" % err.errcode
+			#~ print "Error message: %s" % err.errmsg
+		#~ print "OK PING!"
+		print "OK PING!"
+		#return True
 	
 	def pong(self, pid, name):
-		self.plist.add( (pid, name) )
+		print self.plist.add( (pid, name) )
+		print "PONG"
+		print (pid, name)
+		print "OK PONG!"
+		#return True
 
 class SuperPeer(Peer):
 	def __init__(self, neighbouringCapacity, IPaddr, portno):
