@@ -34,8 +34,9 @@ def whoami():
 	print "name:", peer.name, "pid:", peer.pid
 
 def plist():
-	print peer.neighbouringCapacity
-	print peer.plist
+	print "Peer max neighbour capacity:", peer.neighbouringCapacity
+	print "Peer list size:", len(peer.plist)
+	print sorted(peer.plist, key=lambda (x,y): y)
 
 def hello(pid):
 	print 'hello'
@@ -54,6 +55,7 @@ def hello(pid):
 	peer.msgid += 1
 	print 'bye hello'
 
+
 class PingMessage(threading.Thread):
 	def __init__(self, to, pid, name, msgid, TTL, lastPeer):
 		threading.Thread.__init__(self)
@@ -67,11 +69,7 @@ class PingMessage(threading.Thread):
 	def run(self):
 		print 'pid', self.pid, 'name', self.name, 'msgid', self.msgid, 'TTL', self.TTL, 'lastPeer', self.lastPeer
 		self.s.ping(self.pid, self.name, self.msgid, self.TTL, self.lastPeer)
-	
 
-def proof():
-	t = threading.Thread(target=pof, args=(3,4))
-	t.start()
 
 
 
@@ -190,6 +188,7 @@ if __name__=='__main__':
 		'whoami':		[ whoami, (), '' ],
 		'plist':		[ plist, (), '' ],
 		'hello':		[ hello, (), '' ],
+		
 		'sum':			[ sum_handler, (), 'Sums 100 to whatever interger you pass to it' ],
 		'prod':			[ prod_handler, (100,), 'Sums 100 to whatever interger you pass to it' ],
 	}
@@ -210,9 +209,19 @@ if __name__=='__main__':
 	
 	# If arguments are passed to command line, execute right away
 	if len(sys.argv) > 1:
+		#commands = sys.argv[1:]
 		try:
 			c = tuple(sys.argv[1:])
-			execute_command(c)
+			command = []
+			for w in c:
+				#print "w", w
+				if w != ',':
+					command.append(w)
+				else:
+					#print "command", command
+					execute_command(tuple(command))
+					command = []
+			execute_command(tuple(command))
 		except Exception as e:
 			print 'Error:', e
 			traceback.print_exc()
