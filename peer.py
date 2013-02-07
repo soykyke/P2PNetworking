@@ -50,11 +50,11 @@ def hello(pid):
 	#t.start()  
 	#send_message(pid, peer.pid, peer.name, peer.msgid, TTL, peer.pid) 
 	#s.ping(peer.pid, peer.name, peer.msgid, TTL, peer.pid)
+	print 'starting pingmessage to', pid, 'with', peer.pid, peer.name, peer.msgid, TTL, peer.pid
 	m = PingMessage(pid, peer.pid, peer.name, peer.msgid, TTL, peer.pid)
 	m.start()
 	peer.msgid += 1
 	print 'bye hello'
-
 
 class PingMessage(threading.Thread):
 	def __init__(self, to, pid, name, msgid, TTL, lastPeer):
@@ -67,8 +67,10 @@ class PingMessage(threading.Thread):
 		self.lastPeer = lastPeer
 	
 	def run(self):
+		print 'Im in run ping message'
 		print 'pid', self.pid, 'name', self.name, 'msgid', self.msgid, 'TTL', self.TTL, 'lastPeer', self.lastPeer
 		self.s.ping(self.pid, self.name, self.msgid, self.TTL, self.lastPeer)
+	
 
 
 
@@ -79,16 +81,6 @@ class RequestHandler(SimpleXMLRPCRequestHandler):
     rpc_paths = ('/', '/RPC2')
 
 class Peer(QtCore.QThread, object):
-	#inherits of a SimpleXMLRPCServer (this way, one IP adress is allocated to the Peer)
-	#Peer Class
-		#Attributes:
-			#name (short, unique name)
-			#adress (IP adress+port)
-			#neighbouringCapacity (max number of neighbours)
-			#knownPeersList
-			
-	#peersCounter = 0 #usage of a counter to name the peer
-	#portCounter = 8000
 	
 	def __init__(self, neighbouringCapacity, name, IPaddr, portno):
 		#Class constructor
@@ -106,34 +98,11 @@ class Peer(QtCore.QThread, object):
 	def run(self):
 		print "run server"
 		print 'IPaddr', self.IPaddr, 'portno', self.portno
-		self.server = SimpleXMLRPCServer((self.IPaddr, self.portno),requestHandler=RequestHandler)
-		#########################################################################################################
-		#self=SimpleXMLRPCServer(self,("localhost", 8000),requestHandler=RequestHandler)
-		#########################################################################################################
-		#super(Peer, self).__init__(()
-		#SimpleXMLRPCServer.__init__(self,(self.IPaddr, self.portno), requestHandler=RequestHandler)
-		
-		#print Peer.ping
-		#self.register_introspection_functions()
+		self.server = SimpleXMLRPCServer((self.IPaddr, self.portno),requestHandler=RequestHandler, allow_none=True)
 		self.server.register_instance(self)
 		self.server.serve_forever()
 		print "SERVER DONE"
-		#self.register_function(Peer.ping)
-		#self.register_function(Peer.pong)
-		
-		
-		#if Peer.peersCounter==0:
-		#	self.name="InitialSeed"
-		#else:	
-		#	self.name="P"+str(Peer.peersCounter)
-		
-		#self.neighbouringCapacity=neighbouringCapacity
-		#self.knownPeersList=list()
-		#self.adress="localhost:8000"
-		
-		#Peer.peersCounter=peersCounter+1
-		#Peer.peersCounter+=1
-		#Peer.portCounter+=1
+
 	
 	def ping(self, pid, name, msgid, TTL, lastPeer):
 		print "ping"
@@ -147,11 +116,9 @@ class Peer(QtCore.QThread, object):
 				print p, lastPeer
 				if p == lastPeer: continue
 				print 'doing pings to my list', p,n
+				print 'starting pingmessage to', p, 'with', pid, name, msgid, TTL, self.pid
 				m = PingMessage(p, pid, name, msgid, TTL, self.pid)
-				#s = xmlrpclib.ServerProxy('http://' + p)
-				#t = threading.Thread(target=s.ping, args=(pid, name, msgid, TTL, self.pid, ))  
 				m.start()  
-				#s.ping(pid, name, msgid, TTL, self.pid)
 		
 		print 'adding to my plist'		
 		self.plist.add( (pid, name) )
@@ -209,7 +176,6 @@ if __name__=='__main__':
 	
 	# If arguments are passed to command line, execute right away
 	if len(sys.argv) > 1:
-		#commands = sys.argv[1:]
 		try:
 			c = tuple(sys.argv[1:])
 			command = []
