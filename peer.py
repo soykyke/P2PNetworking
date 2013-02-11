@@ -24,7 +24,8 @@ def superinit(nmax, IPaddr, portno):
 	peer = SuperPeer(nmax, IPaddr, portno)
 
 def whoami():
-	print("name:", peer.name, "pid:", peer.pid)
+	print("{:10}: {}".format("name", peer.name))
+	print("{:10}: {}".format("pid", peer.pid))
 
 def seenmsgs():
 	print("seen messages:", peer.seen_msgs)
@@ -133,8 +134,8 @@ class Peer(object):
 	def ping(self, pid, name, nmax, msgid, TTL, senderid):
 		TTL -= 1
 		if (msgid, pid) in self.seen_msgs: return
-		if TTL > 0:
-			self.seen_msgs.add( (msgid, pid) )
+		self.seen_msgs.add( (msgid, pid) )
+		if TTL > 0:	# We don't forward the message if TTL = 0
 			for p,n,m in self.plist:
 				# Don't forward back to the sender
 				if p == senderid: continue
@@ -159,7 +160,6 @@ class SuperPeer(Peer):
 
 
 if __name__=='__main__':
-	global peer
 	print("Starting...")
 	
 	commands = {
@@ -171,7 +171,7 @@ if __name__=='__main__':
 		'wait':			[ wait, (), 'It stops the peer until you kill it' ],
 		'stop':			[ stop, (), 'Stops the peer' ],
 		
-		'hello':		[ hello, (), 'Enters the network' ],
+		'hello':		[ hello, (), 'Enters an existing network, via a known peer' ],
 		'plist':		[ plist, (), 'Prints the list of know peers' ],
 	}
 	
@@ -206,7 +206,7 @@ if __name__=='__main__':
 	# Shell loop
 	while True:
 		try:
-			c = input(peer.name + '>> ').split()
+			c = input((peer.name if 'peer' in globals() else 'NO-PEER') + '>> ').split()
 			if not c: continue
 			elif c[0] == 'exit': break
 			elif c[0] == 'help' or c[0] == 'usage' or c[0] == '?':
@@ -220,5 +220,5 @@ if __name__=='__main__':
 			traceback.print_exc()
 			continue
 	
-	stop()
 	print("Exiting...")
+	stop()
