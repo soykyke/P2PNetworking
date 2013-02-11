@@ -1,214 +1,224 @@
-#!/usr/bin/python2.7
 # -*-coding:Utf-8 -*
-import sys, traceback
-import xmlrpclib
-from SimpleXMLRPCServer import SimpleXMLRPCServer
-from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
-from PyQt4 import QtCore, QtGui
-import threading 
+import sys, traceback, time
+import xmlrpc
+from xmlrpc.server import SimpleXMLRPCServer
+from xmlrpc.server import SimpleXMLRPCRequestHandler
+import threading
+from queue import Queue
+
+TTL = 2
 
 
-TTL = 50
-
-
-def sum_handler(a,b):
-	a = int(a)
-	b = int(b)
-	print a+b
-
-def prod_handler(a,b):
-	b = int(b)
-	print a*b
-
-def init(neighbouringCapacity, pid, IPaddr, portno):
+########################################################################
+# COMMAND HANDLERS
+########################################################################
+# Note: They all assume either "init" or "superinit" is called first,
+#       and then the local Peer will be in the "peer" global variable.
+########################################################################
+def init(nmax, pid, IPaddr, portno):
 	global peer
-	peer = Peer(neighbouringCapacity, pid, IPaddr, portno)
-	peer.start()
+	peer = Peer(nmax, pid, IPaddr, portno)
 
-def superinit(neighbouringCapacity, IPaddr, portno):
+def superinit(nmax, IPaddr, portno):
 	global peer
-	peer = SuperPeer(neighbouringCapacity, IPaddr, portno)
-	peer.start()
+	peer = SuperPeer(nmax, IPaddr, portno)
 
 def whoami():
-	print "name:", peer.name, "pid:", peer.pid
+	print("name:", peer.name, "pid:", peer.pid)
+
+def seenmsgs():
+	print("seen messages:", peer.seen_msgs)
+
+def wait():
+	peer.out.join()
+	peer.inp.join()
+
+def stop():
+	peer.out.stop()
+	peer.out.join()
+	peer.inp.join()
+	sys.exit(0)
 
 def plist():
-	print "Peer max neighbour capacity:", peer.neighbouringCapacity
-	print "Peer list size:", len(peer.plist)
-	print sorted(peer.plist, key=lambda (x,y): y)
+	print("Peer max neighbour capacity:", peer.nmax)
+	print("Peer list size:", len(peer.plist))
+	print('{:4} {:6} {:20} {:3}'.format('', 'name', 'address', 'nmax'))
+	for i,(pid,name,nmax) in enumerate(sorted(peer.plist, key=lambda x_y: int(x_y[1][1:]))):
+		print('{:3}) {:6} {:20} {:3}'.format(i+1, name, pid, nmax))
 
 def hello(pid):
-	print 'hello'
-	print peer.pid, peer.name, peer.msgid, TTL
-	print 'adding', pid ,'on seen_msgs'
+	print(peer.pid, peer.name, peer.msgid, TTL)
 	peer.seen_msgs.add( (peer.msgid, peer.pid) )
-	print 'seen_msgs', peer.seen_msgs
-	#print "methods: ", s.system.listMethods()
-	#t = threading.Thread(target=s.ping, args=(peer.pid, peer.name, peer.msgid, TTL, peer.pid, ))  
-	#print 'staring thread...'
-	#t.start()  
-	#send_message(pid, peer.pid, peer.name, peer.msgid, TTL, peer.pid) 
-	#s.ping(peer.pid, peer.name, peer.msgid, TTL, peer.pid)
-	print 'starting pingmessage to', pid, 'with', peer.pid, peer.name, peer.msgid, TTL, peer.pid
-	m = PingMessage(pid, peer.pid, peer.name, peer.msgid, TTL, peer.pid)
-	m.start()
+	peer.out.send_msg(dest=pid, msgtype='ping', msgargs=(peer.pid, peer.name, peer.nmax, peer.msgid, TTL, peer.pid))
 	peer.msgid += 1
-	print 'bye hello'
+########################################################################
 
-class PingMessage(threading.Thread):
-	def __init__(self, to, pid, name, msgid, TTL, lastPeer):
+
+
+class Client(threading.Thread):
+	"""
+	Thread for outgoing messages (client side of the peer)
+	"""
+	def __init__(self, peer):
 		threading.Thread.__init__(self)
-		self.s = xmlrpclib.ServerProxy('http://' + to)
-		self.pid= pid
-		self.name = name
-		self.msgid = msgid
-		self.TTL = TTL
-		self.lastPeer = lastPeer
+		self.msgQ = Queue() # A synchronized (mutex) queue
+		self.peer = peer
+	
+	def log(self, *msg):
+		print("[%s]" % self.peer.name, *msg)
+	
+	def send_msg(self, dest, msgtype, msgargs):
+		self.msgQ.put( (dest, msgtype, msgargs) )
+	
+	def stop(self):
+		self.msgQ.put( (self.peer.pid, 'stop', ()) )
 	
 	def run(self):
-		print 'Im in run ping message'
-		print 'pid', self.pid, 'name', self.name, 'msgid', self.msgid, 'TTL', self.TTL, 'lastPeer', self.lastPeer
-		self.s.ping(self.pid, self.name, self.msgid, self.TTL, self.lastPeer)
+		while True:
+			dest, msgtype, msgargs = self.msgQ.get() # Blocking read
+			s = xmlrpc.client.ServerProxy('http://' + dest)
+			getattr(s, msgtype)(*msgargs)
+			if msgtype == 'stop': break
+		self.log("Client Done!")
+
+class Server(threading.Thread):
+	"""
+	Thread for incoming messages (server side of the peer)
+	"""
+	def __init__(self, peer):
+		threading.Thread.__init__(self)
+		self.loop = True
+		self.peer = peer
+		try:
+			self.server = SimpleXMLRPCServer((peer.IPaddr, peer.portno), allow_none=True)
+			self.server.register_instance(self.peer)
+		except Exception as e:
+			print(e)
+			sys.exit(0)
 	
-
-
-
-
-
-# Restrict to a particular path.
-class RequestHandler(SimpleXMLRPCRequestHandler):
-    rpc_paths = ('/', '/RPC2')
-
-class Peer(QtCore.QThread, object):
+	def log(self, *msg):
+		print("[%s]" % self.peer.name, *msg)
 	
-	def __init__(self, neighbouringCapacity, name, IPaddr, portno):
-		#Class constructor
-		QtCore.QThread.__init__(self)
-		
-		self.neighbouringCapacity = neighbouringCapacity
-		self.name = "P"+str(name)
+	def stop(self):
+		self.server.server_close()
+		self.loop = False
+	
+	def run(self):
+		while self.loop:
+			#self.log("xmlrpc server is handling a request...")
+			self.server.handle_request()
+		self.log("Server Done!")
+
+
+class Peer(object):
+	
+	def __init__(self, nmax, name, IPaddr, portno):
+		self.nmax = nmax
+		self.name = 'P' + str(name)
 		self.IPaddr = IPaddr
 		self.portno = int(portno)
 		self.pid = IPaddr + ':' + portno
 		self.plist = set()		# A set of tuples (pid, name)
-		self.msgid = 0
+		self.msgid = 0			# Id of last message sent by this peer
 		self.seen_msgs = set()	# A set of tuples (msgid, source-pid)
+		
+		# Server thread
+		self.inp = Server(self)
+		self.inp.start()
+		
+		# Client thread
+		self.out = Client(self)
+		self.out.start()
 	
-	def run(self):
-		print "run server"
-		print 'IPaddr', self.IPaddr, 'portno', self.portno
-		self.server = SimpleXMLRPCServer((self.IPaddr, self.portno),requestHandler=RequestHandler, allow_none=True)
-		self.server.register_instance(self)
-		self.server.serve_forever()
-		print "SERVER DONE"
-
-	
-	def ping(self, pid, name, msgid, TTL, lastPeer):
-		print "ping"
+	def ping(self, pid, name, nmax, msgid, TTL, senderid):
 		TTL -= 1
 		if (msgid, pid) in self.seen_msgs: return
 		if TTL > 0:
-			print 'adding', pid ,'on seen_msgs'
 			self.seen_msgs.add( (msgid, pid) )
-			print 'seen_msgs', self.seen_msgs
-			for p,n in self.plist:
-				print p, lastPeer
-				if p == lastPeer: continue
-				print 'doing pings to my list', p,n
-				print 'starting pingmessage to', p, 'with', pid, name, msgid, TTL, self.pid
-				m = PingMessage(p, pid, name, msgid, TTL, self.pid)
-				m.start()  
-		
-		print 'adding to my plist'		
-		self.plist.add( (pid, name) )
-		print 'plist', self.plist
-		print 'call to pong', pid
-		s = xmlrpclib.ServerProxy('http://' + pid)
-		s.pong(self.pid, self.name)
-		print 'bye ping'
-		return True
+			for p,n,m in self.plist:
+				# Don't forward back to the sender
+				if p == senderid: continue
+				# Forward ping
+				self.out.send_msg(dest=p, msgtype='ping', msgargs=(pid, name, nmax, msgid, TTL, self.pid))
+		self.plist.add( (pid, name, nmax) )
+		self.out.send_msg(dest=pid, msgtype='pong', msgargs=(self.pid, self.name, self.nmax))
 	
-	def pong(self, pid, name):
-		print 'pong'
-		print 'pid', pid, 'name', name
-		print 'adding to plist...'
-		self.plist.add( (pid, name) )
-		print 'plist', self.plist
-		print 'bye pong'
-		return True
+	def pong(self, pid, name, nmax):
+		self.plist.add( (pid, name, nmax) )
+	
+	def stop(self):
+		self.inp.stop()
+
 
 class SuperPeer(Peer):
-	def __init__(self, neighbouringCapacity, IPaddr, portno):
-		super(SuperPeer, self).__init__(neighbouringCapacity, 0, IPaddr, portno)
+	def __init__(self, nmax, IPaddr, portno):
+		super(SuperPeer, self).__init__(nmax, 0, IPaddr, portno)
+
+
 
 
 
 if __name__=='__main__':
-
-	print "Starting..."
+	global peer
+	print("Starting...")
 	
 	commands = {
-		# cmd name : [ cmd_handler, arg_tuple, 'Description' ]
-		'superinit':	[ superinit, (), '' ],
-		'init':			[ init, (), '' ],
-		'whoami':		[ whoami, (), '' ],
-		'plist':		[ plist, (), '' ],
-		'hello':		[ hello, (), '' ],
+		# cmd name : 	[ cmd_handler, (arg_tuple,), 'Description' ]
+		'superinit':	[ superinit, (), 'Initialize the super peer. Must be called only once!' ],
+		'init':			[ init, (), 'Initialize a peer (not the super peer). Must be called only once!' ],
+		'whoami':		[ whoami, (), 'Prints the peer''s identity' ],
+		'seen':			[ seenmsgs, (), 'Prints the messages seen by this peer' ],
+		'wait':			[ wait, (), 'It stops the peer until you kill it' ],
+		'stop':			[ stop, (), 'Stops the peer' ],
 		
-		'sum':			[ sum_handler, (), 'Sums 100 to whatever interger you pass to it' ],
-		'prod':			[ prod_handler, (100,), 'Sums 100 to whatever interger you pass to it' ],
+		'hello':		[ hello, (), 'Enters the network' ],
+		'plist':		[ plist, (), 'Prints the list of know peers' ],
 	}
 	
 	def usage():
-		print '='*23 + ':'
-		print 'Usage\n' + '='*23 + ':'
-		for c,specs in sorted(commands.iteritems(), key=lambda (k,v): k):
-			print '{:23}: {}'.format(c, specs[2])
-		print '='*23 + ':'
+		print('='*20 + ':')
+		print('Usage\n' + '='*20 + ':')
+		for c,specs in sorted(iter(commands.items()), key=lambda k_v: k_v[0]):
+			print('{:23}: {}'.format(c, specs[2]))
+		print('='*20 + ':')
 	
 	def execute_command(c):
-		#print c
 		if c[0] in commands:
 			commands[c[0]][0](*(commands[c[0]][1] + c[1:]))
 		else:
-			print 'Error: command "%s" not found.' % c
+			print('Error: command "%s" not found.' % c)
 	
-	# If arguments are passed to command line, execute right away
+	# If arguments are passed to command line, execute commands right away
 	if len(sys.argv) > 1:
 		try:
 			c = tuple(sys.argv[1:])
 			command = []
 			for w in c:
-				#print "w", w
-				if w != ',':
-					command.append(w)
+				if w != ',': command.append(w)
 				else:
-					#print "command", command
 					execute_command(tuple(command))
 					command = []
 			execute_command(tuple(command))
 		except Exception as e:
-			print 'Error:', e
+			print('Error:', e)
 			traceback.print_exc()
 	
-	#else:
-	# Read command input
+	# Shell loop
 	while True:
 		try:
-			c = tuple(raw_input('PEER >> ').split())
-			if c[0] == 'exit': break
-			elif c[0] == '': continue
+			c = input(peer.name + '>> ').split()
+			if not c: continue
+			elif c[0] == 'exit': break
 			elif c[0] == 'help' or c[0] == 'usage' or c[0] == '?':
 				usage()
 				continue
-			execute_command(c)
+			execute_command(tuple(c))
 		except EOFError:
 			break
 		except Exception as e:
-			print 'Error:', e
+			print('Error:', e)
 			traceback.print_exc()
 			continue
-
-
-	print "Exiting..."
+	
+	stop()
+	print("Exiting...")
