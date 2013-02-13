@@ -48,7 +48,7 @@ def plist():
 		print('{:3}) {:6} {:20} {:3}'.format(i+1, name, pid, nmax))
 
 def hello(pid):
-	print(peer.pid, peer.name, peer.msgid, TTL)
+	#print(peer.pid, peer.name, peer.msgid, TTL)
 	peer.seen_msgs.add( (peer.msgid, peer.pid) )
 	peer.out.send_msg(dest=pid, msgtype='ping', msgargs=(peer.pid, peer.name, peer.nmax, peer.msgid, TTL, peer.pid))
 	peer.msgid += 1
@@ -131,18 +131,18 @@ class Peer(object):
 		self.out = Client(self)
 		self.out.start()
 	
-	def ping(self, pid, name, nmax, msgid, TTL, senderid):
+	def ping(self, sourcepid, name, nmax, msgid, TTL, senderpid):
+		if (msgid, sourcepid) in self.seen_msgs: return
+		self.seen_msgs.add( (msgid, sourcepid) )
 		TTL -= 1
-		if (msgid, pid) in self.seen_msgs: return
-		self.seen_msgs.add( (msgid, pid) )
 		if TTL > 0:	# We don't forward the message if TTL = 0
 			for p,n,m in self.plist:
 				# Don't forward back to the sender
-				if p == senderid: continue
+				if p == senderpid: continue
 				# Forward ping
-				self.out.send_msg(dest=p, msgtype='ping', msgargs=(pid, name, nmax, msgid, TTL, self.pid))
-		self.plist.add( (pid, name, nmax) )
-		self.out.send_msg(dest=pid, msgtype='pong', msgargs=(self.pid, self.name, self.nmax))
+				self.out.send_msg(dest=p, msgtype='ping', msgargs=(sourcepid, name, nmax, msgid, TTL, self.pid))
+		self.plist.add( (sourcepid, name, nmax) )
+		self.out.send_msg(dest=sourcepid, msgtype='pong', msgargs=(self.pid, self.name, self.nmax))
 	
 	def pong(self, pid, name, nmax):
 		self.plist.add( (pid, name, nmax) )
