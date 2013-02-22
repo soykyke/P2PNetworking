@@ -9,7 +9,7 @@ from queue import Queue
 from datetime import datetime, timedelta
 
 TTL = 2
-TimeOutAlive = timedelta(seconds = 5)
+TimeOutAlive = timedelta(seconds = 2)
 TimeToDiscoveryMissingPeers =  5
 
 
@@ -85,11 +85,11 @@ class Client(threading.Thread):
 		while True:
 			dest, msgtype, msgargs = self.msgQ.get() # Blocking read
 			s = xmlrpc.client.ServerProxy('http://' + dest)
-			print(msgtype, msgargs)
 			try:
 				getattr(s, msgtype).__call__(*msgargs)
 			except socket.error:
-				print("ERROR!")
+				print ("ERROR CONNECTION REFUSED")
+				continue
 			except xmlrpc.client.Error as err:
 				print("ERROR!")
 				print("An error occurred")
@@ -100,18 +100,9 @@ class Client(threading.Thread):
 				print("A fault occurred")
 				print("Fault code: %d" % err.faultCode)
 				print("Fault string: %s" % err.faultString)
-			except xmlrpc.client.ResponseError as err:
-				print("ERROR!")
-			except xmlrpc.client.ProtocolError as err:
-				print("ERROR!")
-				print("A protocol error occurred")
-				print("URL: %s" % err.url)
-				print("HTTP/HTTPS headers: %s" % err.headers)
-				print("Error code: %d" % err.errcode)
-				print("Error message: %s" % err.errmsg)
-			#~ except Exception as e:
-				#~ print('Error:', e)
-				#~ traceback.print_exc()
+			except Exception as e:
+				print('Error:', e)
+				traceback.print_exc()
 			if msgtype == 'stop': break
 		self.log("Client Done!")
 
@@ -160,28 +151,29 @@ class Still_alive(threading.Thread): # Change
 
 	def mechanism(self):
 		print("Mechanish discory missing peers:")
-		print("Peer list size:", len(self.peer.plist))
+		print("Peer list size before StillAlive:", len(self.peer.plist))
 		with self.peer.plock:
-			for pid, value in self.peer.plist.items():
+			for pid, value in self.peer.plist.copy().items():
 				if (value[3] == True): 
 					del self.peer.plist[pid] 
 				# remove from nlist too
-				if (datetime.now() > TimeOutAlive + value[2]):
-					print("sending alive msg")
+				elif (datetime.now() > TimeOutAlive + value[2]):
 					self.peer.out.send_msg(dest=pid, msgtype='send_alive', msgargs=(self.peer.pid,))
 					self.peer.plist[pid][3] = True
+		print("Peer list size after StillAlive:", len(self.peer.plist))
 
 	def run(self):
 		while self.loop:
 			self.mechanism()
 			time.sleep(TimeToDiscoveryMissingPeers)
+			print ("HI STILL ALIVE")
 
 		self.log("Still Alive Done!")	
 
 class Peer(object):
 	
 	def __init__(self, nmax, name, IPaddr, portno):
-		self.nmax = int(nmax)
+		self.nmax = nmax
 		self.name = 'P' + str(name)
 		self.IPaddr = IPaddr
 		self.portno = int(portno)
@@ -206,6 +198,7 @@ class Peer(object):
 		
 	
 	def ping(self, sourcepid, name, nmax, msgid, TTL, senderpid):
+		print ('PING=','sourcepid', sourcepid, 'name', name, 'nmax', nmax, 'msgid', msgid, 'TTL', TTL, 'senderpid', senderpid)
 		if (msgid, sourcepid) in self.seen_msgs: return
 		self.seen_msgs.add( (msgid, sourcepid) )
 		TTL -= 1
@@ -216,12 +209,15 @@ class Peer(object):
 				# Forward ping
 				self.out.send_msg(dest=p, msgtype='ping', msgargs=(sourcepid, name, nmax, msgid, TTL, self.pid))
 		with self.plock: # Changed
+			print ('PING=','Adding sourcepid to PLIST', sourcepid)
 			self.plist[sourcepid] = [name, nmax, datetime.now(), False] # Changed
 			
 		self.out.send_msg(dest=sourcepid, msgtype='pong', msgargs=(self.pid, self.name, self.nmax))
 		
 	def pong(self, pid, name, nmax):
+		print ('PONG=', 'pid', pid, 'name', name, 'nmax', nmax)
 		with self.plock: # Changed
+			print ('PONG=','Adding sourcepid to PLIST', pid)
 			self.plist[pid] = [name, nmax, datetime.now(), False] # Changed
 
 	def send_alive(self, sourcepid): # Changed
@@ -238,6 +234,7 @@ class Peer(object):
 	
 	def stop(self):
 		self.inp.stop()
+		self.still_alive.stop() # Changed
 
 
 class SuperPeer(Peer):
