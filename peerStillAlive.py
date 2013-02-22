@@ -6,6 +6,7 @@ from xmlrpc.server import SimpleXMLRPCRequestHandler
 import threading
 from queue import Queue
 from datetime import datetime, timedelta
+import socket
 
 TTL = 2
 TimeOutAlive = timedelta(seconds = 5)
@@ -86,9 +87,13 @@ class Client(threading.Thread):
 			s = xmlrpc.client.ServerProxy('http://' + dest)
 			try:
 				getattr(s, msgtype)(*msgargs)
+			except socket.error:
+				print ("ERROR CONNECTION REFUSED")
+				continue
 			except Exception as e:
 				print('Error:', e)
 				traceback.print_exc()
+
 			if msgtype == 'stop': break
 		self.log("Client Done!")
 
@@ -137,20 +142,22 @@ class Still_alive(threading.Thread): # Change
 
 	def mechanism(self):
 		print("Mechanish discory missing peers:")
-		print("Peer list size:", len(self.peer.plist))
+		print("Peer list size before StillAlive:", len(self.peer.plist))
 		with self.peer.plock:
-			for pid, value in self.peer.plist.items():
+			for pid, value in self.peer.plist.copy().items():
 				if (value[3] == True): 
 					del self.peer.plist[pid] 
 				# remove from nlist too
-				if (datetime.now() > TimeOutAlive + value[2]):
+				elif (datetime.now() > TimeOutAlive + value[2]):
 					self.peer.out.send_msg(dest=pid, msgtype='send_alive', msgargs=(self.peer.pid,))
 					self.peer.plist[pid][3] = True
+		print("Peer list size after StillAlive:", len(self.peer.plist))
 
 	def run(self):
 		while self.loop:
 			self.mechanism()
 			time.sleep(TimeToDiscoveryMissingPeers)
+			print ("HI STILL ALIVE")
 
 		self.log("Still Alive Done!")	
 
@@ -182,22 +189,26 @@ class Peer(object):
 		
 	
 	def ping(self, sourcepid, name, nmax, msgid, TTL, senderpid):
+		print ('PING=','sourcepid', sourcepid, 'name', name, 'nmax', nmax, 'msgid', msgid, 'TTL', TTL, 'senderpid', senderpid)
 		if (msgid, sourcepid) in self.seen_msgs: return
 		self.seen_msgs.add( (msgid, sourcepid) )
 		TTL -= 1
 		if TTL > 0:	# We don't forward the message if TTL = 0
-			for p,(n,m) in self.plist.items(): # Changed
+			for p in self.plist.keys(): # Changed
 				# Don't forward back to the sender
 				if p == senderpid: continue
 				# Forward ping
 				self.out.send_msg(dest=p, msgtype='ping', msgargs=(sourcepid, name, nmax, msgid, TTL, self.pid))
 		with self.plock: # Changed
+			print ('PING=','Adding sourcepid to PLIST', sourcepid)
 			self.plist[sourcepid] = [name, nmax, datetime.now(), False] # Changed
 			
 		self.out.send_msg(dest=sourcepid, msgtype='pong', msgargs=(self.pid, self.name, self.nmax))
 		
 	def pong(self, pid, name, nmax):
+		print ('PONG=', 'pid', pid, 'name', name, 'nmax', nmax)
 		with self.plock: # Changed
+			print ('PONG=','Adding sourcepid to PLIST', pid)
 			self.plist[pid] = [name, nmax, datetime.now(), False] # Changed
 
 	def send_alive(self, sourcepid): # Changed
@@ -214,6 +225,7 @@ class Peer(object):
 	
 	def stop(self):
 		self.inp.stop()
+		self.still_alive.stop() # Changed
 
 
 class SuperPeer(Peer):
