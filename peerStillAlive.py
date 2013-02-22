@@ -1,6 +1,7 @@
 # -*-coding:Utf-8 -*
 import sys, traceback, time
 import xmlrpc
+import socket
 from xmlrpc.server import SimpleXMLRPCServer
 from xmlrpc.server import SimpleXMLRPCRequestHandler
 import threading
@@ -9,7 +10,7 @@ from datetime import datetime, timedelta
 
 TTL = 2
 TimeOutAlive = timedelta(seconds = 5)
-TimeToDiscoveryMissingPeers =  10
+TimeToDiscoveryMissingPeers =  5
 
 
 ########################################################################
@@ -84,11 +85,33 @@ class Client(threading.Thread):
 		while True:
 			dest, msgtype, msgargs = self.msgQ.get() # Blocking read
 			s = xmlrpc.client.ServerProxy('http://' + dest)
+			print(msgtype, msgargs)
 			try:
-				getattr(s, msgtype)(*msgargs)
-			except Exception as e:
-				print('Error:', e)
-				traceback.print_exc()
+				getattr(s, msgtype).__call__(*msgargs)
+			except socket.error:
+				print("ERROR!")
+			except xmlrpc.client.Error as err:
+				print("ERROR!")
+				print("An error occurred")
+				print("Fault code: %d" % err.faultCode)
+				print("Fault string: %s" % err.faultString)
+			except xmlrpc.client.Fault as err:
+				print("ERROR!")
+				print("A fault occurred")
+				print("Fault code: %d" % err.faultCode)
+				print("Fault string: %s" % err.faultString)
+			except xmlrpc.client.ResponseError as err:
+				print("ERROR!")
+			except xmlrpc.client.ProtocolError as err:
+				print("ERROR!")
+				print("A protocol error occurred")
+				print("URL: %s" % err.url)
+				print("HTTP/HTTPS headers: %s" % err.headers)
+				print("Error code: %d" % err.errcode)
+				print("Error message: %s" % err.errmsg)
+			#~ except Exception as e:
+				#~ print('Error:', e)
+				#~ traceback.print_exc()
 			if msgtype == 'stop': break
 		self.log("Client Done!")
 
@@ -144,6 +167,7 @@ class Still_alive(threading.Thread): # Change
 					del self.peer.plist[pid] 
 				# remove from nlist too
 				if (datetime.now() > TimeOutAlive + value[2]):
+					print("sending alive msg")
 					self.peer.out.send_msg(dest=pid, msgtype='send_alive', msgargs=(self.peer.pid,))
 					self.peer.plist[pid][3] = True
 
@@ -157,7 +181,7 @@ class Still_alive(threading.Thread): # Change
 class Peer(object):
 	
 	def __init__(self, nmax, name, IPaddr, portno):
-		self.nmax = nmax
+		self.nmax = int(nmax)
 		self.name = 'P' + str(name)
 		self.IPaddr = IPaddr
 		self.portno = int(portno)
@@ -186,7 +210,7 @@ class Peer(object):
 		self.seen_msgs.add( (msgid, sourcepid) )
 		TTL -= 1
 		if TTL > 0:	# We don't forward the message if TTL = 0
-			for p,(n,m) in self.plist.items(): # Changed
+			for p in self.plist.keys(): # Changed
 				# Don't forward back to the sender
 				if p == senderpid: continue
 				# Forward ping
