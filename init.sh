@@ -40,21 +40,39 @@ N=$(python -c "from math import floor; print floor($frequency*$1)")
 #if N+sumofN<=10 on add N de la classe
 #if N+sumofN>10 on add 10-SumofN de la class (si SumofN<=k-1)
 
-if [ $(python -c "print int($sumofN+$N)") -le $4 ]
+if [ $(python -c "print int($sumofN)") -lt $1 ]
 then
-	if [ $(python -c "print int($N)") -eq 0 ]
+	if [ $(python -c "print int($sumofN+$N)") -le $1 ]
 	then
-		$N=$4-$sumofN
 		echo "$N peers added to class $k"
+		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		for i in `seq $N`
+		do
+			echo $(($2+$i))
+			(python3 peer.py init $k $(python -c "print int($sumofN+$i)") localhost $(python -c "print int($2+$i+$sumofN)") , hello localhost:$3 , wait &)
+		done
+		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		sumofN=$(python -c "print($sumofN+$N)")
+		echo "Total number of peers generated: $sumofN"
 	else
-		echo "$N peers added to class $k"
+		echo "$(($1-$N)) added to classe $k"
+		sumofN=$1
 	fi
-	
+fi
+done
+
+if [ $(python -c "print int($1-$sumofN)") -gt 0 ]
+then
+	additional=$(python -c "print int($1-$sumofN)")
+	echo "additional $additional peers added to class $k"
+	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	for i in `seq $additional`
+	do
+			(python3 peer.py init $k $(python -c "print int($sumofN+$i)") localhost $(python -c "print int($2+$i+$sumofN)") , hello localhost:$3 , wait &)
+	done
+	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 fi
 
-
-
-done
 
 
 
