@@ -47,11 +47,9 @@ def stop():
 def plist():
 	print("Peer max neighbour capacity:", peer.nmax)
 	print("Peer list size:", len(peer.plist))
-	print('{:4} {:6} {:20} {:3}'.format('', 'name', 'address', 'nmax'))
-	#for i,(pid,name,nmax) in enumerate(sorted(peer.plist, key=lambda x_y: int(x_y[1][1:]))):
-	# print('{:3}) {:6} {:20} {:3}'.format(i+1, name, pid, nmax))
-	for k,v in peer.plist.items(): # Changed
-		print (k,v) # Changed
+	print('{:4} {:6} {:16} {:3} {:18} {:10}'.format('', 'name', 'address', 'nmax', 'last heard', 'sent alive'))
+	for i,(pid,(name,nmax,date,alivesent)) in enumerate(sorted(peer.plist.items(), key=lambda i: i[1][1])): # Changed
+		print('{:3}) {:6} {:16} {:3} {:%Y-%m-%d %H:%M:%S} {:10}'.format(i+1, name, pid, nmax, date, alivesent))
 
 def hello(pid):
 	#print(peer.pid, peer.name, peer.msgid, TTL)
@@ -224,7 +222,7 @@ class Peer(object):
 					# Forward ping
 					self.out.send_msg(dest=p, msgtype='ping', msgargs=(sourcepid, name, nmax, msgid, TTL, self.pid))
 				print ('PING=','Adding sourcepid to PLIST', sourcepid)
-				self.plist[sourcepid] = [name, nmax, datetime.now(), False] # Changed
+				self.plist[sourcepid] = [name, int(nmax), datetime.now(), False] # Changed
 			
 		self.out.send_msg(dest=sourcepid, msgtype='pong', msgargs=(self.pid, self.name, self.nmax))
 		
@@ -233,7 +231,7 @@ class Peer(object):
 		print ('PONG=', 'sourcepid', sourcepid, 'name', name, 'nmax', nmax)
 		with self.plock: # Changed
 			print ('PONG=','Adding sourcepid to PLIST', sourcepid)
-			self.plist[sourcepid] = [name, nmax, datetime.now(), False] # Changed
+			self.plist[sourcepid] = [name, int(nmax), datetime.now(), False] # Changed
 
 	def send_alive(self, sourcepid): # Changed
 		self.__update_timer__(sourcepid)
