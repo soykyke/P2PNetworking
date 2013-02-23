@@ -9,7 +9,7 @@ from queue import Queue
 from datetime import datetime, timedelta
 
 TTL = 2
-TimeOutAlive = timedelta(seconds = 2)
+TimeOutAlive = timedelta(seconds = 10)
 TimeToDiscoveryMissingPeers =  5
 
 
@@ -83,25 +83,31 @@ class Client(threading.Thread):
 	
 	def run(self):
 		while True:
-			dest, msgtype, msgargs = self.msgQ.get() # Blocking read
+			dest, msgtype, msgargs = self.msgQ.get() # Read from msgQ is blocking
 			s = xmlrpc.client.ServerProxy('http://' + dest)
 			try:
 				getattr(s, msgtype).__call__(*msgargs)
 			except socket.error:
 				print ("ERROR CONNECTION REFUSED")
-				continue
+				with self.peer.plock:
+					if dest in self.peer.plist: del self.peer.plist[dest]
+				pass
 			except xmlrpc.client.Error as err:
 				print("ERROR!")
 				print("An error occurred")
 				print("Fault code: %d" % err.faultCode)
 				print("Fault string: %s" % err.faultString)
+				traceback.print_exc()
 			except xmlrpc.client.Fault as err:
 				print("ERROR!")
 				print("A fault occurred")
 				print("Fault code: %d" % err.faultCode)
 				print("Fault string: %s" % err.faultString)
-			except Exception as e:
-				print('Error:', e)
+				traceback.print_exc()
+			except Exception as err:
+				print("ERROR!")
+				print("An exception occurred")
+				print('Exception:', err)
 				traceback.print_exc()
 			if msgtype == 'stop': break
 		self.log("Client Done!")
@@ -181,6 +187,7 @@ class Peer(object):
 		self.plist = {}	  	    # Changed
 		self.msgid = 0			# Id of last message sent by this peer
 		self.seen_msgs = set()	# A set of tuples (msgid, source-pid)
+		self.plock = threading.RLock() # Changed
 		
 		# Server thread
 		self.inp = Server(self)
@@ -193,44 +200,50 @@ class Peer(object):
 		# Still Alive thread
 		self.still_alive = Still_alive(self) # Changed
 		self.still_alive.start() # Changed
-		
-		self.plock = threading.RLock() # Changed
-		
+	
+	def __update_timer__(self, sourcepid):
+		with self.plock:
+			if sourcepid in self.plist:
+				self.plist[sourcepid][2] = datetime.now()
+				self.plist[sourcepid][3] = False
+			#else:
+			#	self.plist[sourcepid] = ['NAME', -10, datetime.now(), False] # Changed
+			#	#raise Exception("Peer not in Plist?? What to do?")
 	
 	def ping(self, sourcepid, name, nmax, msgid, TTL, senderpid):
+		self.__update_timer__(sourcepid)
 		print ('PING=','sourcepid', sourcepid, 'name', name, 'nmax', nmax, 'msgid', msgid, 'TTL', TTL, 'senderpid', senderpid)
 		if (msgid, sourcepid) in self.seen_msgs: return
 		self.seen_msgs.add( (msgid, sourcepid) )
 		TTL -= 1
 		if TTL > 0:	# We don't forward the message if TTL = 0
-			for p in self.plist.keys(): # Changed
-				# Don't forward back to the sender
-				if p == senderpid: continue
-				# Forward ping
-				self.out.send_msg(dest=p, msgtype='ping', msgargs=(sourcepid, name, nmax, msgid, TTL, self.pid))
-		with self.plock: # Changed
-			print ('PING=','Adding sourcepid to PLIST', sourcepid)
-			self.plist[sourcepid] = [name, nmax, datetime.now(), False] # Changed
+			with self.plock:
+				for p in self.plist.keys(): # Changed
+					# Don't forward back to the sender
+					if p == senderpid: continue
+					# Forward ping
+					self.out.send_msg(dest=p, msgtype='ping', msgargs=(sourcepid, name, nmax, msgid, TTL, self.pid))
+				print ('PING=','Adding sourcepid to PLIST', sourcepid)
+				self.plist[sourcepid] = [name, nmax, datetime.now(), False] # Changed
 			
 		self.out.send_msg(dest=sourcepid, msgtype='pong', msgargs=(self.pid, self.name, self.nmax))
 		
-	def pong(self, pid, name, nmax):
-		print ('PONG=', 'pid', pid, 'name', name, 'nmax', nmax)
+	def pong(self, sourcepid, name, nmax):
+		self.__update_timer__(sourcepid)
+		print ('PONG=', 'sourcepid', sourcepid, 'name', name, 'nmax', nmax)
 		with self.plock: # Changed
-			print ('PONG=','Adding sourcepid to PLIST', pid)
-			self.plist[pid] = [name, nmax, datetime.now(), False] # Changed
+			print ('PONG=','Adding sourcepid to PLIST', sourcepid)
+			self.plist[sourcepid] = [name, nmax, datetime.now(), False] # Changed
 
 	def send_alive(self, sourcepid): # Changed
+		self.__update_timer__(sourcepid)
 		print ("I received a still alive petition from", sourcepid)
-		self.plist[sourcepid][2] = datetime.now()
-		self.plist[sourcepid][3] = False
 		print ("I'm sending a alive msg to", sourcepid)
 		self.out.send_msg(dest=sourcepid, msgtype='receive_alive', msgargs=(self.pid,))
 		
 	def receive_alive(self, sourcepid): # Changed
-		print ("I received a I'm alive from", sourcepid)	
-		self.plist[sourcepid][2] = datetime.now()
-		self.plist[sourcepid][3] = False
+		self.__update_timer__(sourcepid)
+		print ("I received a I'm alive from", sourcepid)
 	
 	def stop(self):
 		self.inp.stop()

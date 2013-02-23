@@ -1,4 +1,4 @@
-
+#!/bin/bash
 # Instructions:
 # ./init.sh <n-of-peers-to-launch> <starting-portno> <know-peer-portno> <global-max-neighbouring>
 
@@ -49,7 +49,7 @@ then
 		for i in `seq $N`
 		do
 			echo $(($2+$i))
-			(python3 peer.py init $k $(python -c "print int($sumofN+$i)") localhost $(python -c "print int($2+$i+$sumofN)") , hello localhost:$3 , wait &)
+			(python3 peerStillAlive.py init $k $(python -c "print int($sumofN+$i)") localhost $(python -c "print int($2+$i+$sumofN)") , hello localhost:$3 , wait &)
 		done
 		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 		sumofN=$(python -c "print($sumofN+$N)")
@@ -68,7 +68,7 @@ then
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	for i in `seq $additional`
 	do
-			(python3 peer.py init $k $(python -c "print int($sumofN+$i)") localhost $(python -c "print int($2+$i+$sumofN)") , hello localhost:$3 , wait &)
+			(python3 peerStillAlive.py init $k $(python -c "print int($sumofN+$i)") localhost $(python -c "print int($2+$i+$sumofN)") , hello localhost:$3 , wait &)
 	done
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 fi
@@ -79,5 +79,5 @@ fi
 #for i in `seq $1`
 #do
 #	#echo $(($2+$i))
-#	(python3 peer.py init $i $i localhost $(($2+$i)) , hello localhost:$3 , wait &)
+#	(python peer.py init $i $i localhost $(($2+$i)) , hello localhost:$3 , wait &)
 #done
