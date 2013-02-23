@@ -49,7 +49,7 @@ then
 		for i in `seq $N`
 		do
 			echo $(($2+$i))
-			(python3 peer.py init $k $(python -c "print int($sumofN+$i)") localhost $(python -c "print int($2+$i+$sumofN)") , hello localhost:$3 , wait &)
+			(python3 peerStillAlive.py init $k $(python -c "print int($sumofN+$i)") localhost $(python -c "print int($2+$i+$sumofN)") , hello localhost:$3 , wait &)
 		done
 		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 		sumofN=$(python -c "print($sumofN+$N)")
@@ -68,7 +68,7 @@ then
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	for i in `seq $additional`
 	do
-			(python3 peer.py init $k $(python -c "print int($sumofN+$i)") localhost $(python -c "print int($2+$i+$sumofN)") , hello localhost:$3 , wait &)
+			(python3 peerStillAlive.py init $k $(python -c "print int($sumofN+$i)") localhost $(python -c "print int($2+$i+$sumofN)") , hello localhost:$3 , wait &)
 	done
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 fi
