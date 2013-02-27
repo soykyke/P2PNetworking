@@ -17,13 +17,9 @@ listafinal = [ round((i/max(lista)*(MAX_NB-MIN_NB))+MIN_NB) for i in lista ]
 print (sorted(listafinal))
 print (max(listafinal))
 
-#import numpy as np
-#import matplotlib.pyplot as plt
-
-#x = listafinal
-#y = range(len(listafinal))
-#plt.plot(y, x)
-#plt.show()
+#~ import matplotlib.pyplot as plt
+#~ plt.plot(range(len(listafinal)), sorted(listafinal))
+#~ plt.show()
 
 for i,maxn in enumerate(listafinal):
 	subprocess.Popen(['python3', PEER_SCRIPT, repr(MAX_NB),

@@ -1,4 +1,3 @@
-# -*-coding:Utf-8 -*
 import sys, traceback, time
 import xmlrpc
 import socket
@@ -51,6 +50,7 @@ def nlist(*peers):
 	with peer.plock:
 		peer_names = list(peers) if peers else None
 		if not peer_names:
+			# No arguments passed: just print out my neighbours
 			nlist_dot_graph([ (peer.pid, peer.name, peer.nmax, [ (p,peer.plist[p][0],peer.plist[p][1]) for p in peer.nlist ]) ])
 		else:
 			peer.nlist_waited_answers = 0
@@ -105,7 +105,7 @@ def nlist_dot_graph(nlist_answers):
 	
 	printed_edges = set()
 	for pid,name,nmax in sorted(nodes, key=lambda x: -x[2]):
-		graph.add_node(pydot.Node('%s(%d)'%(name,nmax)))
+		graph.add_node(pydot.Node('%s(%d)'%(name,nmax), style='filled', fillcolor='0.000 0.000 %.3f'%(1.-((nmax-3.)/float(MAX_NB))), fontcolor='white' if (nmax)/float(MAX_NB) >= 0.8 else 'black'))
 	for ((p1,n1,m1),(p2,n2,m2)) in edges:
 		if ((p2,n2,m2),(p1,n1,m1)) in edges and not ((p2,n2,m2),(p1,n1,m1)) in printed_edges and not ((p1,n1,m1),(p2,n2,m2)) in printed_edges:
 			graph.add_edge(pydot.Edge('%s(%d)'%(n1,m1), '%s(%d)'%(n2,m2)))
@@ -253,6 +253,7 @@ class Nlist_Manager(threading.Thread):
 				self.peer.out.send_msg(dest=pid, msgname='still_my_nb', msgargs=(self.peer.pid, self.peer.name, self.peer.nmax, len(self.peer.nlist)))
 	
 	def manage(self):
+		assert set(self.peer.nlist) <= set(self.peer.plist)
 		print(self.peer.name, self.peer.nmax, self.peer.nlist)
 		def P_i(nmax, l, nmax_i, refused_i):
 			"""
@@ -325,6 +326,7 @@ class Peer(object):
 		with self.plock:
 			self.nlist[pid] = True
 			self.out.send_msg(dest=pid, msgname='accept_nb', msgargs=(self.pid, self.name, self.nmax, len(self.nlist)))
+			self.nb_asked_pid = None # <- Trial
 	
 	def __reject_nb__(self, pid):
 		with self.plock:
@@ -391,8 +393,8 @@ class Peer(object):
 	def accept_nb(self, senderpid, name, nmax, l):
 		self.__update_timer__(senderpid, name, nmax, l)
 		with self.plock:
-			#if senderpid == self.nb_asked_pid and len(self.nlist) < self.nmax:
-			if len(self.nlist) < self.nmax:
+			if senderpid == self.nb_asked_pid and len(self.nlist) < self.nmax:
+			#if len(self.nlist) < self.nmax:
 				self.nlist[senderpid] = True
 	
 	def reject_nb(self, senderpid, name, nmax, l):
