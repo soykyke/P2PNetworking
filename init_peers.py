@@ -3,7 +3,7 @@ import math
 import sys
 import subprocess
 
-PEER_SCRIPT = 'peerStillAlive.py'
+PEER_SCRIPT = 'peer.py'
 
 NUM_PEERS = int(sys.argv[1])
 MIN_NB = int(sys.argv[2])
@@ -11,7 +11,7 @@ MAX_NB = int(sys.argv[3])
 START_PORTNO = int(sys.argv[4])
 KNOWNPEER_PORTNO = int(sys.argv[5])
 
-lista = [ random.expovariate(1) for i in range(NUM_PEERS+1) ]
+lista = [ random.expovariate(1) for i in range(NUM_PEERS) ]
 listafinal = [ round((i/max(lista)*(MAX_NB-MIN_NB))+MIN_NB) for i in lista ]
 
 print (sorted(listafinal))
