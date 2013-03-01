@@ -1,4 +1,5 @@
 import sys, traceback, time
+
 import xmlrpc
 import socket
 import pydot
@@ -10,7 +11,7 @@ import threading
 from queue import Queue
 from datetime import datetime, timedelta
 
-TTL = 2
+TTL = 5
 TimeOutAlive = timedelta(seconds = 5)
 TimeToDiscoveryMissingPeers =  2
 Nlist_Manager_SleepTime = 10
@@ -85,6 +86,19 @@ def hello(pid):
 	peer.seen_msgs.add( (peer.msgid, peer.pid) )
 	peer.out.send_msg(dest=pid, msgname='ping', msgargs=(peer.pid, peer.name, peer.nmax, len(peer.nlist), peer.msgid, TTL, peer.pid))
 	peer.msgid += 1
+	
+def find(lookingfor):
+	peer.seen_msgs.add( (peer.msgid, peer.pid) )
+	if peer.nlist:
+		with peer.plock:
+			path = []
+			path.append(peer.name)
+			for pid in peer.nlist.keys():
+				print ("Sending find message to", pid, "looking for", lookingfor)
+				peer.out.send_msg(dest=pid, msgname='find', msgargs=(peer.pid, peer.name, peer.nmax, len(peer.nlist), peer.msgid, TTL, peer.pid, 1, lookingfor, path))
+		peer.msgid += 1
+	else:
+		print ("Don't have neighbours :(")
 ########################################################################
 
 
@@ -106,16 +120,16 @@ def nlist_dot_graph(nlist_answers):
 	
 	printed_edges = set()
 	for pid,name,nmax in sorted(nodes, key=lambda x: -x[2]):
-		graph.add_node(pydot.Node('%s(%d)'%(name,nmax), style='filled', fillcolor='0.000 0.000 %.3f'%(1.-((nmax-3.)/float(MAX_NB))), fontcolor='white' if (nmax)/float(MAX_NB) >= 0.8 else 'black'))
+		graph.add_node(pydot.Node('%s(%d)'%(name,nmax), encode='utf-8', style='filled', fillcolor='0.000 0.000 %.3f'%(1.-((nmax-3.)/float(MAX_NB))), fontcolor='white' if (nmax)/float(MAX_NB) >= 0.8 else 'black'))
 	for ((p1,n1,m1),(p2,n2,m2)) in edges:
 		if ((p2,n2,m2),(p1,n1,m1)) in edges and not ((p2,n2,m2),(p1,n1,m1)) in printed_edges and not ((p1,n1,m1),(p2,n2,m2)) in printed_edges:
 			graph.add_edge(pydot.Edge('%s(%d)'%(n1,m1), '%s(%d)'%(n2,m2)))
 			printed_edges.add( ((p1,n1,m1),(p2,n2,m2)) )
 			printed_edges.add( ((p2,n2,m2),(p1,n1,m1)) )
 	
-	graph.write('nlist.dot')
+	graph.write('nlistEnrique.dot')
 	#graph.write_png('nlist.png', prog='fdp')
-	graph.write_png('nlist.png', prog='dot')
+	#graph.write_png("name", prog='dot')
 
 
 
@@ -182,7 +196,7 @@ class Server(threading.Thread):
 		self.loop = True
 		self.peer = peer
 		try:
-			self.server = SimpleXMLRPCServer((peer.IPaddr, peer.portno), allow_none=True)
+			self.server = SimpleXMLRPCServer((peer.IPaddr, peer.portno), allow_none=True, logRequests = False) # we change this for not show unnecessary messages
 			self.server.register_instance(self.peer)
 		except Exception as e:
 			print(e)
@@ -194,7 +208,7 @@ class Server(threading.Thread):
 	def stop(self):
 		self.server.server_close()
 		self.loop = False
-	
+
 	def run(self):
 		while self.loop:
 			#self.log("xmlrpc server is handling a request...")
@@ -308,6 +322,10 @@ class Peer(object):
 		self.msgid = 0			# Id of last message sent by this peer
 		self.seen_msgs = set()	# A set of tuples (msgid, source-pid)
 		self.plock = threading.RLock()
+		self.num_msg_find_incoming = threading.RLock()
+		self.num_msg_find_outcoming = threading.RLock()
+		self.num_msg_find_incoming = 0
+		self.num_msg_find_outcoming = 0
 		
 		# Server thread
 		self.inp = Server(self)
@@ -348,7 +366,7 @@ class Peer(object):
 	# Incoming message handlers
 	####################################################################
 	def ping(self, sourcepid, name, nmax, l, msgid, TTL, senderpid):
-		self.__update_timer__(sourcepid, name, nmax, l)
+		self.__update_timer__(sourcepid, name, nmax, l) # *1 We update here
 		if (msgid, sourcepid) in self.seen_msgs: return
 		self.seen_msgs.add( (msgid, sourcepid) )
 		with self.plock:
@@ -359,11 +377,42 @@ class Peer(object):
 					if p == senderpid: continue
 					# Forward ping
 					self.out.send_msg(dest=p, msgname='ping', msgargs=(sourcepid, name, nmax, l, msgid, TTL, self.pid))
-				self.plist[sourcepid] = [name, int(nmax), int(l), datetime.now(), False, 0]
+				#self.plist[sourcepid] = [name, int(nmax), int(l), datetime.now(), False, 0] # *1 And we update here the same thing?
 			self.out.send_msg(dest=sourcepid, msgname='pong', msgargs=(self.pid, self.name, self.nmax, len(self.nlist)))
 	
 	def pong(self, sourcepid, name, nmax, l):
 		self.__update_timer__(sourcepid, name, nmax, l)
+		#with self.plock:
+		#	self.plist[sourcepid] = [name, int(nmax), int(l), datetime.now(), False, 0]
+			
+	def find(self, sourcepid, name, nmax, l, msgid, TTL, senderpid, count_this_msg, lookingfor, path = []):
+		print ("Im in find function looking for", lookingfor)
+		for i in path:
+			print (i)
+		self.__update_timer__(sourcepid, name, nmax, l)
+		if (msgid, sourcepid) in self.seen_msgs: return
+		self.seen_msgs.add( (msgid, sourcepid) )
+		path.append(self.name)
+		if (lookingfor == self.name):
+			print ("I have the file that", sourcepid, "is looking for:", lookingfor)
+			self.out.send_msg(dest=sourcepid, msgname='get', msgargs=(self.pid, self.name, self.nmax, len(self.nlist), count_this_msg, path))
+		with self.plock:
+			TTL -= 1
+			if TTL > 0:	# We don't forward the message if TTL = 0
+				for p in self.nlist.keys():
+					# Don't forward back to the sender
+					if p == senderpid: continue
+					# Forward ping
+					self.out.send_msg(dest=p, msgname='find', msgargs=(sourcepid, name, nmax, l, msgid, TTL, self.pid, count_this_msg+1, lookingfor, path))
+	
+	def get(self, pid, name, nmax, l, count_this_msg, path = []):
+		print ("Im in get function")
+		self.__update_timer__(pid, name, nmax, l)
+		path.append(self.name)
+		print ("I found the peer", pid, "with name", name, "and", count_this_msg,"steps.")
+		print ("Path")
+		for i in path:
+			print (i)
 		with self.plock:
 			self.plist[sourcepid] = [name, int(nmax), int(l), datetime.now(), False, 0]
 
@@ -506,6 +555,7 @@ if __name__=='__main__':
 		'hello':		[ hello, (), 'Enters an existing network, via a known peer.' ],
 		'plist':		[ plist, (), 'Prints the list of know peers.' ],
 		'nlist':		[ nlist, (), 'Prints the list of neighbours of the given peers.' ],
+		'find':			[ find, (), 'Look for a file in the neighbourhood.' ],
 	}
 	
 	def usage():
