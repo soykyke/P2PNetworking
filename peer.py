@@ -11,10 +11,10 @@ import threading
 from queue import Queue
 from datetime import datetime, timedelta
 
-TTL = 5
+TTL = 3
 TimeOutAlive = timedelta(seconds = 5)
 TimeToDiscoveryMissingPeers =  2
-Nlist_Manager_SleepTime = 10
+Nlist_Manager_SleepTime = 5
 
 
 ########################################################################
@@ -95,10 +95,36 @@ def find(lookingfor):
 			path.append(peer.name)
 			for pid in peer.nlist.keys():
 				print ("Sending find message to", pid, "looking for", lookingfor)
+				# Increasing the number of sent messages
+				with peer.lock_num_msg_find_outgoing:
+					peer.num_msg_find_outgoing += 1
+					peer.bytescount_outgoing += sys.getsizeof(peer.pid) + sys.getsizeof(peer.name) + sys.getsizeof(peer.nmax) + sys.getsizeof(len(peer.nlist)) + sys.getsizeof(peer.msgid)+ sys.getsizeof(TTL) + sys.getsizeof(1)+ sys.getsizeof(peer.pid) + sys.getsizeof(lookingfor)
 				peer.out.send_msg(dest=pid, msgname='find', msgargs=(peer.pid, peer.name, peer.nmax, len(peer.nlist), peer.msgid, TTL, peer.pid, 1, lookingfor, path))
 		peer.msgid += 1
 	else:
 		print ("Don't have neighbours :(")
+		
+def report():
+	print ("--- Incoming ---")
+	print ("Incoming messages:", peer.num_msg_find_incoming)
+	print ("Bytes incoming to this Peer:",peer.bytescount_incoming)
+	print ("--- Outgoing ---")
+	print ("Outgoing messages:", peer.num_msg_find_outgoing)
+	print ("Bytes outgoing from this Peer:",peer.bytescount_outgoing)
+	print ("--- Total ---")
+	print ("Incoming and outgoing messages:", peer.num_msg_find_incoming + peer.num_msg_find_outgoing)
+	print ("Bytes transferred through this Peer:",peer.bytescount_incoming + peer.bytescount_outgoing)
+	
+def restart_report():
+	print ("Restarting measurements of report...")
+	with peer.lock_num_msg_find_incoming:
+		peer.num_msg_find_incoming = 0
+		peer.bytescount_incoming  = 0
+		print ("Incoming measurements restarted")
+	with peer.lock_num_msg_find_outgoing:
+		peer.num_msg_find_outgoing = 0
+		peer.bytescount_outgoing  = 0
+		print ("Outgoing measurements restarted")
 ########################################################################
 
 
@@ -322,10 +348,12 @@ class Peer(object):
 		self.msgid = 0			# Id of last message sent by this peer
 		self.seen_msgs = set()	# A set of tuples (msgid, source-pid)
 		self.plock = threading.RLock()
-		self.num_msg_find_incoming = threading.RLock()
-		self.num_msg_find_outcoming = threading.RLock()
+		self.lock_num_msg_find_incoming = threading.RLock()
+		self.lock_num_msg_find_outgoing = threading.RLock()
 		self.num_msg_find_incoming = 0
-		self.num_msg_find_outcoming = 0
+		self.num_msg_find_outgoing = 0
+		self.bytescount_incoming = 0
+		self.bytescount_outgoing = 0
 		
 		# Server thread
 		self.inp = Server(self)
@@ -386,26 +414,57 @@ class Peer(object):
 		#	self.plist[sourcepid] = [name, int(nmax), int(l), datetime.now(), False, 0]
 			
 	def find(self, sourcepid, name, nmax, l, msgid, TTL, senderpid, count_this_msg, lookingfor, path = []):
+		
+		
+		# Increasing the number of received messages and the counting of incoming total bytes
+		with self.lock_num_msg_find_incoming:
+			self.num_msg_find_incoming += 1
+			self.bytescount_incoming += sys.getsizeof(sourcepid) + sys.getsizeof(name) + sys.getsizeof(nmax) + sys.getsizeof(l) + sys.getsizeof(msgid)+ sys.getsizeof(TTL) + sys.getsizeof(count_this_msg)+ sys.getsizeof(senderpid) + sys.getsizeof(lookingfor)
+		
+		
 		print ("Im in find function looking for", lookingfor)
-		for i in path:
-			print (i)
 		self.__update_timer__(sourcepid, name, nmax, l)
+		print ("MSGID,SOURCEIP",(msgid, sourcepid))
+		if ((msgid, sourcepid) in self.seen_msgs):
+			print ("I already saw this message, so I do nothing more here")
+		else:
+			print ("I didn´t see this message before so lets do something with it")
 		if (msgid, sourcepid) in self.seen_msgs: return
 		self.seen_msgs.add( (msgid, sourcepid) )
+		
 		path.append(self.name)
+		
+		print ("Im looking if I have the file that", name, "are looking for")
 		if (lookingfor == self.name):
-			print ("I have the file that", sourcepid, "is looking for:", lookingfor)
+			print ("##I have the file so Im sending a response to", name)
 			self.out.send_msg(dest=sourcepid, msgname='get', msgargs=(self.pid, self.name, self.nmax, len(self.nlist), count_this_msg, path))
-		with self.plock:
-			TTL -= 1
-			if TTL > 0:	# We don't forward the message if TTL = 0
-				for p in self.nlist.keys():
-					# Don't forward back to the sender
-					if p == senderpid: continue
-					# Forward ping
-					self.out.send_msg(dest=p, msgname='find', msgargs=(sourcepid, name, nmax, l, msgid, TTL, self.pid, count_this_msg+1, lookingfor, path))
+			# Increasing the number of sent messages
+			with self.lock_num_msg_find_outgoing:
+				self.num_msg_find_outgoing += 1
+				self.bytescount_outgoing += sys.getsizeof(self.pid) + sys.getsizeof(self.name) + sys.getsizeof(self.nmax) + sys.getsizeof(len(self.nlist)) + sys.getsizeof(count_this_msg)
+		else:
+			print ("I don't have the file, so im going to send the search through all my neigbours")
+			with self.plock:
+				TTL -= 1
+				if TTL > 0:	# We don't forward the message if TTL = 0
+					
+					for p in self.nlist.keys():
+						# Don't forward back to the sender
+						if p == senderpid: continue
+						# Forward ping
+						self.out.send_msg(dest=p, msgname='find', msgargs=(sourcepid, name, nmax, l, msgid, TTL, self.pid, count_this_msg+1, lookingfor, path))
+						# Increasing the number of sent messages
+						with self.lock_num_msg_find_outgoing:
+							self.bytescount_outgoing += sys.getsizeof(sourcepid) + sys.getsizeof(name) + sys.getsizeof(nmax) + sys.getsizeof(l) + sys.getsizeof(msgid)+ sys.getsizeof(TTL) + sys.getsizeof(count_this_msg + 1)+ sys.getsizeof(senderpid) + sys.getsizeof(lookingfor)
+							self.num_msg_find_outgoing += 1
+				else:
+					print ("Seems that TTL is 0, then I don´t spread the search anymore")
 	
 	def get(self, pid, name, nmax, l, count_this_msg, path = []):
+		# Increasing the number of received messages and the counting of incoming total bytes
+		with self.lock_num_msg_find_incoming:
+			self.num_msg_find_incoming += 1
+			self.bytescount_incoming += sys.getsizeof(pid) + sys.getsizeof(name) + sys.getsizeof(nmax) + sys.getsizeof(l) + sys.getsizeof(count_this_msg)
 		print ("Im in get function")
 		self.__update_timer__(pid, name, nmax, l)
 		path.append(self.name)
@@ -413,8 +472,8 @@ class Peer(object):
 		print ("Path")
 		for i in path:
 			print (i)
-		with self.plock:
-			self.plist[sourcepid] = [name, int(nmax), int(l), datetime.now(), False, 0]
+		#with self.plock:
+		#	self.plist[sourcepid] = [name, int(nmax), int(l), datetime.now(), False, 0]
 
 	def send_alive(self, sourcepid, name, nmax, l):
 		self.__update_timer__(sourcepid, name, nmax, l)
@@ -553,9 +612,11 @@ if __name__=='__main__':
 		'stop':			[ stop, (), 'Stops all the peer activities and exits the shell.' ],
 		
 		'hello':		[ hello, (), 'Enters an existing network, via a known peer.' ],
-		'plist':		[ plist, (), 'Prints the list of know peers.' ],
+		'plist':		[ plist, (), '_Prints the list of know peers.' ],
 		'nlist':		[ nlist, (), 'Prints the list of neighbours of the given peers.' ],
 		'find':			[ find, (), 'Look for a file in the neighbourhood.' ],
+		'report': 		[ report, (), 'Show the incoming and outgoing number of messages for find.'],
+		'restart_report':[ restart_report, (), 'Restart the measurements of the report.'],
 	}
 	
 	def usage():
