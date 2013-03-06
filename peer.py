@@ -115,6 +115,18 @@ def find(lookingfor):
 	else:
 		print ("Don't have neighbours :(")
 		
+def get(lookingfor):
+	if lookingfor == peer.name:
+		print ("I already have the item!!!")
+		return
+	if lookingfor in peer.founditems:
+		peer.out.send_msg(dest=peer.founditems[lookingfor], msgname='get', msgargs=(peer.pid, peer.name, peer.nmax, len(peer.nlist), lookingfor))
+	else:
+		print ("We dont know who have the item", lookingfor, "so you have to find it before get it, using find command.")
+		
+	
+	
+		
 def report():
 	print ("--- Incoming ---")
 	print ("Incoming messages:", peer.num_msg_find_incoming)
@@ -504,6 +516,7 @@ class Peer(object):
 			print ("I don't have the file, so im going to send the search through all my neigbours")
 			for pid in self.nlist.keys():
 				if (self.plist[pid][0] == lookingfor) :
+					print ("One of my neighbours have the file! I only forward the find message to him")
 					self.out.send_msg(dest=pid, msgname='find', msgargs=(sourcepid, name, nmax, l, msgid, TTL, self.pid, count_this_msg+1, lookingfor, path))
 					break
 			else:
@@ -537,6 +550,20 @@ class Peer(object):
 		for i in path:
 			print (i)
 	
+	def get(self, sourcepid, name, nmax, l, lookingfor):
+		self.__update_timer__(sourcepid, name, nmax, l)
+		print ("The peer", sourcepid, "is requesting me the item", lookingfor)
+		if lookingfor == self.name:
+			print ("I have the item so im sending to him")
+			itemrequested = self.name
+			peer.out.send_msg(dest=sourcepid, msgname='got', msgargs=(self.pid, self.name, self.nmax, len(self.nlist), itemrequested))
+					
+		else:
+			print ("I dont have the item!!")
+			
+	def got(self, sourcepid, name, nmax, l, itemrequested):
+		self.__update_timer__(sourcepid, name, nmax, l)
+		print ("Now I have the item", itemrequested, "from", sourcepid)
 
 	def send_alive(self, sourcepid, name, nmax, l):
 		self.__update_timer__(sourcepid, name, nmax, l)
@@ -710,6 +737,7 @@ if __name__=='__main__':
 		'report': 		[ report, (), 'Show the incoming and outgoing number of messages for find.'],
 		'totreport':	[ totreport, (), ''],
 		'restart_report':[ restart_report, (), 'Restart the measurements of the report.'],
+		'get':			[ get, (), 'Request a item to a peer'],
 	}
 	
 	def usage():
