@@ -11,7 +11,7 @@ import threading
 from queue import Queue
 from datetime import datetime, timedelta
 
-TTL = 3
+TTL = 7
 TimeOutAlive = timedelta(seconds = 5)
 TimeToDiscoveryMissingPeers =  2
 Nlist_Manager_SleepTime = 5
@@ -125,7 +125,27 @@ def report():
 	print ("--- Total ---")
 	print ("Incoming and outgoing messages:", peer.num_msg_find_incoming + peer.num_msg_find_outgoing)
 	print ("Bytes transferred through this Peer:",peer.bytescount_incoming + peer.bytescount_outgoing)
-	
+
+def totreport(*peers):
+	with peer.plock:
+		peer.totreport_waited_answers = 0
+		peer.totreport_answers = []
+		peer_names = list(peers) if peers else [ p[0] for p in peer.plist.values() ] + [ peer.name ]
+		for name in peer_names:
+			if name == peer.name:
+				# Send request message to myself (trick to have my neighbours too)
+				peer.out.send_msg(dest=peer.pid, msgname='get_report', msgargs=(peer.pid, peer.name, peer.nmax, len(peer.nlist)))
+				peer.totreport_waited_answers += 1
+				continue
+			
+			for p,(n,m,l,d,s,r) in peer.plist.items():
+				if n==name:
+					peer.out.send_msg(dest=p, msgname='get_report', msgargs=(peer.pid, peer.name, peer.nmax, len(peer.nlist)))
+					peer.totreport_waited_answers += 1
+					break
+			else:
+				pass # The requested peer name does not exist!
+
 def restart_report():
 	print ("Restarting measurements of report...")
 	with peer.lock_num_msg_find_incoming:
@@ -138,6 +158,18 @@ def restart_report():
 		print ("Outgoing measurements restarted")
 ########################################################################
 
+
+def total_report(answers):
+	tot_nmsgs_in = 0
+	tot_nmsgs_out = 0
+	tot_bytes_in = 0
+	tot_bytes_out = 0
+	for pid, name, nmax, nmsgs_in, nmsgs_out, nbytes_in, nbytes_out in answers:
+		tot_nmsgs_in += nmsgs_in
+		tot_nmsgs_out += nmsgs_out
+		tot_bytes_in += nbytes_in
+		tot_bytes_out += nbytes_out
+	print ("TOTAL REPORT:\ntot_nmsgs_in=%d\ntot_nmsgs_out=%d\ntot_bytes_in=%d\ntot_bytes_out=%d\n" % (tot_nmsgs_in,tot_nmsgs_out,tot_bytes_in,tot_bytes_out))
 
 def nlist_dot_graph(nlist_answers):
 	"""
@@ -164,8 +196,10 @@ def nlist_dot_graph(nlist_answers):
 			printed_edges.add( ((p1,n1,m1),(p2,n2,m2)) )
 			printed_edges.add( ((p2,n2,m2),(p1,n1,m1)) )
 	
-	graph.write('nlistEnrique.dot')
-	#graph.write_png('nlist.png', prog='fdp')
+	#graph.write('nlistEnrique.dot')
+	graph.write('nlist.dot')
+	graph.write_png('nlist.png', prog='dot')
+	graph.write_pdf('nlist.pdf', prog='dot')
 	#graph.write_png("name", prog='dot')
 
 
@@ -199,11 +233,12 @@ class Client(threading.Thread):
 				getattr(s, msgname).__call__(*msgargs)
 			except socket.error:
 				print ("ERROR CONNECTION REFUSED")
-				with self.peer.plock:
-					if dest in self.peer.plist:
-						del self.peer.plist[dest]
-					if dest in self.peer.nlist:
-						del self.peer.nlist[dest]
+				self.peer.__remove_peer__(dest)
+				#~ with self.peer.plock:
+					#~ if dest in self.peer.plist:
+						#~ del self.peer.plist[dest]
+					#~ if dest in self.peer.nlist:
+						#~ del self.peer.nlist[dest]
 			except xmlrpc.client.Error as err:
 				print("ERROR!")
 				print("An error occurred")
@@ -276,9 +311,10 @@ class Still_alive(threading.Thread):
 		with self.peer.plock:
 			for pid, value in self.peer.plist.copy().items():
 				if (value[4] == True):
-					del self.peer.plist[pid] 
-					if pid in self.peer.nlist:
-						del self.peer.nlist[pid]
+					self.__remove_peer__(pid)
+					#del self.peer.plist[pid] 
+					#if pid in self.peer.nlist:
+					#	del self.peer.nlist[pid]
 				elif (datetime.now() > TimeOutAlive + value[3]):
 					self.peer.out.send_msg(dest=pid, msgname='send_alive', msgargs=(self.peer.pid, self.peer.name, self.peer.nmax, len(self.peer.nlist)))
 					self.peer.plist[pid][4] = True
@@ -399,8 +435,20 @@ class Peer(object):
 	
 	def __reject_nb__(self, pid):
 		with self.plock:
-			if pid in self.nlist: del self.nlist[pid]
+			if pid in self.nlist:
+				del self.nlist[pid]
 			self.out.send_msg(dest=pid, msgname='reject_nb', msgargs=(self.pid, self.name, self.nmax, len(self.nlist)))
+	
+	def __remove_peer__(self, pid):
+		"""
+		Removes the peer 'pid' both from plist and nlist. Useful, for istance,
+		when the peer 'pid' is down or unresponsive for a long time.
+		"""
+		with self.plock:
+			if pid in self.plist:
+				del self.plist[pid]
+			if pid in self.nlist:
+				del self.nlist[pid]
 	
 	####################################################################
 	# Incoming message handlers
@@ -597,6 +645,35 @@ class Peer(object):
 			if len(self.nlist_answers) == self.nlist_waited_answers:
 				nlist_dot_graph(self.nlist_answers)
 	
+	def get_report(self, senderpid, name, nmax, l):
+		self.__update_timer__(senderpid, name, nmax, l)
+		"""
+		Another peer has asked me my reports.
+		"""
+		with self.plock:
+			self.out.send_msg(
+				dest=senderpid,
+				msgname='send_report',
+				msgargs=(
+					self.pid, self.name, self.nmax, len(self.nlist),
+					self.num_msg_find_incoming,
+					self.num_msg_find_outgoing,
+					self.bytescount_incoming,
+					self.bytescount_outgoing,
+				)
+			)
+	
+	def send_report(self, senderpid, name, nmax, l, nmsg_in, nmsg_out, nbytes_in, nbytes_out):
+		self.__update_timer__(senderpid, name, nmax, l)
+		"""
+		One of the peers I requested the report to has finally replied me back.
+		"""
+		with self.plock:
+			assert len(self.totreport_answers) < self.totreport_waited_answers
+			self.totreport_answers.append( (senderpid,name,nmax,nmsg_in,nmsg_out,nbytes_in,nbytes_out) )
+			if len(self.totreport_answers) == self.totreport_waited_answers:
+				total_report(self.totreport_answers)
+	
 	def stop(self):
 		self.inp.stop()
 		self.still_alive.stop()
@@ -631,6 +708,7 @@ if __name__=='__main__':
 		'nlist':		[ nlist, (), 'Prints the list of neighbours of the given peers.' ],
 		'find':			[ find, (), 'Look for a file in the neighbourhood.' ],
 		'report': 		[ report, (), 'Show the incoming and outgoing number of messages for find.'],
+		'totreport':	[ totreport, (), ''],
 		'restart_report':[ restart_report, (), 'Restart the measurements of the report.'],
 	}
 	
