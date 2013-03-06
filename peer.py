@@ -7,6 +7,7 @@ import math
 import random
 from xmlrpc.server import SimpleXMLRPCServer
 from xmlrpc.server import SimpleXMLRPCRequestHandler
+from subprocess import check_output
 import threading
 from queue import Queue
 from datetime import datetime, timedelta
@@ -212,9 +213,13 @@ def nlist_dot_graph(nlist_answers):
 	
 	#graph.write('nlistEnrique.dot')
 	graph.write('nlist.dot')
-	graph.write_png('nlist.png', prog='dot')
-	graph.write_pdf('nlist.pdf', prog='dot')
-	graph.write_jpg('nlist.jpg', prog='dot')
+	png_data = check_output([ 'dot', '-Tpng', 'nlist.dot' ], shell=False)
+	png_file = open('nlist.png', 'wb')
+	png_file.write(png_data)
+	png_file.close()
+	#graph.write_png('nlist.png', prog='dot')
+	#graph.write_pdf('nlist.pdf', prog='dot')
+	#graph.write_jpg('nlist.jpg', prog='dot')
 	#graph.write_png("name", prog='dot')
 
 
