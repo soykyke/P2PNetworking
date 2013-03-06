@@ -11,7 +11,7 @@ import threading
 from queue import Queue
 from datetime import datetime, timedelta
 
-TTL = 7
+TTL = 4
 TimeOutAlive = timedelta(seconds = 5)
 TimeToDiscoveryMissingPeers =  2
 Nlist_Manager_SleepTime = 5
@@ -96,9 +96,10 @@ def find(lookingfor):
 	# See first if one of my neighbour have the item
 	if peer.nlist:
 		with peer.plock:
-			for pid in peer.nlist.keys():
+			for pid in peer.nlist:
 				if (peer.plist[pid][0] == lookingfor) :
-					peer.founditems[lookingfor] = peer.plist[pid][0]
+					print ('Your neighbour %s has what you are looking for' % (pid))
+					peer.founditems[lookingfor] = pid
 					break
 			else:
 			
@@ -120,6 +121,7 @@ def get(lookingfor):
 		print ("I already have the item!!!")
 		return
 	if lookingfor in peer.founditems:
+		print ("Sending to %s" % (peer.founditems[lookingfor]))
 		peer.out.send_msg(dest=peer.founditems[lookingfor], msgname='get', msgargs=(peer.pid, peer.name, peer.nmax, len(peer.nlist), lookingfor))
 	else:
 		print ("We dont know who have the item", lookingfor, "so you have to find it before get it, using find command.")
@@ -212,6 +214,7 @@ def nlist_dot_graph(nlist_answers):
 	graph.write('nlist.dot')
 	graph.write_png('nlist.png', prog='dot')
 	graph.write_pdf('nlist.pdf', prog='dot')
+	graph.write_jpg('nlist.jpg', prog='dot')
 	#graph.write_png("name", prog='dot')
 
 
@@ -323,7 +326,7 @@ class Still_alive(threading.Thread):
 		with self.peer.plock:
 			for pid, value in self.peer.plist.copy().items():
 				if (value[4] == True):
-					self.__remove_peer__(pid)
+					self.peer.__remove_peer__(pid)
 					#del self.peer.plist[pid] 
 					#if pid in self.peer.nlist:
 					#	del self.peer.nlist[pid]
@@ -381,7 +384,7 @@ class Nlist_Manager(threading.Thread):
 			for pid, values in sorted(self.peer.plist.items(), key=lambda k_v: -PEER_SCORE(self.peer.nmax, len(self.peer.nlist), k_v[1][1])/(math.sqrt(k_v[1][5])+1.)):
 			#for pid, values in sorted(self.peer.plist.items(), key=lambda k_v: -P_i((MAX_NB*len(self.peer.nlist)+1), (sum(self.peer.plist[pid][1] for pid in self.peer.nlist)/(len(self.peer.nlist)+1)), k_v[1][1], k_v[1][5])):
 			#for pid, values in sorted(self.peer.plist.items(), key=lambda k_v: -(k_v[1][1]-k_v[1][5])):
-				if pid not in peer.nlist:
+				if pid not in self.peer.nlist:
 					self.peer.out.send_msg(dest=pid, msgname='be_my_nb', msgargs=(self.peer.pid, self.peer.name, self.peer.nmax, len(self.peer.nlist)))
 					self.peer.nb_asked_pid = pid
 					break
@@ -461,6 +464,9 @@ class Peer(object):
 				del self.plist[pid]
 			if pid in self.nlist:
 				del self.nlist[pid]
+			for msgid, p in self.seen_msgs.copy():
+				if p == pid:
+					self.seen_msgs -= set([ (msgid, p) ])
 	
 	####################################################################
 	# Incoming message handlers
@@ -481,7 +487,7 @@ class Peer(object):
 	
 	def pong(self, sourcepid, name, nmax, l):
 		self.__update_timer__(sourcepid, name, nmax, l)
-			
+	
 	def find(self, sourcepid, name, nmax, l, msgid, TTL, senderpid, count_this_msg, lookingfor, path = []):
 		
 		# Increasing the number of received messages and the counting of incoming total bytes
@@ -514,10 +520,14 @@ class Peer(object):
 				self.bytescount_outgoing += sys.getsizeof(self.pid) + sys.getsizeof(self.name) + sys.getsizeof(self.nmax) + sys.getsizeof(len(self.nlist)) + sys.getsizeof(count_this_msg)
 		else:
 			print ("I don't have the file, so im going to send the search through all my neigbours")
-			for pid in self.nlist.keys():
-				if (self.plist[pid][0] == lookingfor) :
+			for pid in self.nlist:
+				if (self.plist[pid][0] == lookingfor):
 					print ("One of my neighbours have the file! I only forward the find message to him")
 					self.out.send_msg(dest=pid, msgname='find', msgargs=(sourcepid, name, nmax, l, msgid, TTL, self.pid, count_this_msg+1, lookingfor, path))
+					# Increasing the number of sent messages
+					with self.lock_num_msg_find_outgoing:
+						self.bytescount_outgoing += sys.getsizeof(sourcepid) + sys.getsizeof(name) + sys.getsizeof(nmax) + sys.getsizeof(l) + sys.getsizeof(msgid)+ sys.getsizeof(TTL) + sys.getsizeof(count_this_msg + 1)+ sys.getsizeof(senderpid) + sys.getsizeof(lookingfor)
+						self.num_msg_find_outgoing += 1
 					break
 			else:
 				with self.plock:
