@@ -478,17 +478,30 @@ class Peer(object):
 	####################################################################
 	def ping(self, sourcepid, name, nmax, l, msgid, TTL, senderpid):
 		self.__update_timer__(sourcepid, name, nmax, l) # *1 We update here
+		# Maybe we have to update here also the senderpid?
 		if (msgid, sourcepid) in self.seen_msgs: return
 		self.seen_msgs.add( (msgid, sourcepid) )
-		with self.plock:
-			TTL -= 1
-			if TTL > 0:	# We don't forward the message if TTL = 0
+		# Little modification to optimize the code
+		TTL -= 1
+		if TTL > 0:	# We don't forward the message if TTL = 0
+			with self.plock:
 				for p in self.plist.keys():
 					# Don't forward back to the sender
 					if p == senderpid: continue
 					# Forward ping
 					self.out.send_msg(dest=p, msgname='ping', msgargs=(sourcepid, name, nmax, l, msgid, TTL, self.pid))
-			self.out.send_msg(dest=sourcepid, msgname='pong', msgargs=(self.pid, self.name, self.nmax, len(self.nlist)))
+		self.out.send_msg(dest=sourcepid, msgname='pong', msgargs=(self.pid, self.name, self.nmax, len(self.nlist)))
+		
+		# Something strange this maybe :S
+		#with self.plock:
+		#	TTL -= 1
+		#	if TTL > 0:	# We don't forward the message if TTL = 0
+		#		for p in self.plist.keys():
+		#			# Don't forward back to the sender
+		#			if p == senderpid: continue
+		#			# Forward ping
+		#			self.out.send_msg(dest=p, msgname='ping', msgargs=(sourcepid, name, nmax, l, msgid, TTL, self.pid))
+		#	self.out.send_msg(dest=sourcepid, msgname='pong', msgargs=(self.pid, self.name, self.nmax, len(self.nlist)))
 	
 	def pong(self, sourcepid, name, nmax, l):
 		self.__update_timer__(sourcepid, name, nmax, l)
@@ -535,10 +548,9 @@ class Peer(object):
 						self.num_msg_find_outgoing += 1
 					break
 			else:
-				with self.plock:
-					TTL -= 1
-					if TTL > 0:	# We don't forward the message if TTL = 0
-						
+				TTL -= 1
+				if TTL > 0:	# We don't forward the message if TTL = 0
+					with self.plock:						
 						for p in self.nlist.keys():
 							# Don't forward back to the sender
 							if p == senderpid: continue
@@ -548,8 +560,8 @@ class Peer(object):
 							with self.lock_num_msg_find_outgoing:
 								self.bytescount_outgoing += sys.getsizeof(sourcepid) + sys.getsizeof(name) + sys.getsizeof(nmax) + sys.getsizeof(l) + sys.getsizeof(msgid)+ sys.getsizeof(TTL) + sys.getsizeof(count_this_msg + 1)+ sys.getsizeof(senderpid) + sys.getsizeof(lookingfor)
 								self.num_msg_find_outgoing += 1
-					else:
-						print ("Seems that TTL is 0, then I don´t spread the search anymore")
+				else:
+					print ("Seems that TTL is 0, then I don´t spread the search anymore")
 	
 	def found(self, pid, name, nmax, l, count_this_msg, path = []):
 		# Increasing the number of received messages and the counting of incoming total bytes
