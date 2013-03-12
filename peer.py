@@ -89,6 +89,7 @@ def hello(pid, TTL=DEFAULT_TTL):
 	peer.msgid += 1
 	
 def find(lookingfor, TTL=DEFAULT_TTL):
+	TTL = int(TTL)
 	peer.seen_msgs.add( (peer.msgid, peer.pid) )
 	# If I have the item? 
 	if lookingfor == peer.name:
@@ -180,7 +181,7 @@ def kfind(lookingfor, TTL=DEFAULT_TTL, K=DEFAULT_K):
 						print (candidates)
 						
 						p = min(candidates, key=candidates.get)
-							
+						
 						# POSSIBLE IMPROVEMENT: IF WE HAVE MORE THAN 1 MIN PID, DISCARD THE LAST SENDER (IF IT IS INSIDE)
 						
 						peer.klist[(p, lookingfor)] += 1
@@ -704,7 +705,7 @@ class Peer(object):
 			print ("I don't have the file, so im going to send the search through all my neigbours")
 			for pid in self.nlist:
 				if (self.plist[pid][0] == lookingfor):
-					print ("One of my neighbours have the file! I only forward the find message to him")
+					print ("One of my neighbours have the file! I only forward the kfind message to him")
 					self.out.send_msg(dest=pid, msgname='kfind', msgargs=(sourcepid, sourcename, sourcenmax, sourcel, msgid, TTL, count_this_msg+1, lookingfor, idwalker, hops + 1, path), track=True)
 					# Increasing the number of sent messages
 					#with self.plock:
@@ -738,8 +739,13 @@ class Peer(object):
 					print ("Candidates to send the k-Walker")
 					print (candidates)
 					
-					p = min(candidates, key=candidates.get)
-					
+					min_pid = min(candidates, key=candidates.get)
+					# Convert P into a list with the peers with the minimun values
+					min_candidates = [ pid for pid, n in candidates.items() if n==candidates[min_pid] ]
+					if len(min_candidates) > 1 and senderpid in min_candidates:
+						min_candidates.remove(senderpid)
+					p = min_candidates[0]
+					# Now I am discarting 
 					# POSSIBLE IMPROVEMENT: IF WE HAVE MORE THAN 1 MIN PID, DISCARD THE LAST SENDER (IF IT IS INSIDE)
 					
 					self.klist[(p, lookingfor)] += 1
