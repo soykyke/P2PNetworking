@@ -14,8 +14,8 @@ from datetime import datetime, timedelta
 
 DEFAULT_TTL = 4
 DEFAULT_K = 3
-TimeOutAlive = timedelta(seconds = 5)
-TimeToDiscoveryMissingPeers =  2
+TimeOutAlive = timedelta(seconds = 10)
+TimeToDiscoveryMissingPeers =  5
 Nlist_Manager_SleepTime = 5
 
 ########################################################################
@@ -152,47 +152,48 @@ def kfind(lookingfor, TTL=DEFAULT_TTL, K=DEFAULT_K):
 				path.append(peer.name)
 
 				with peer.plock:
-					print ("Im creating", K, "zombies")
+					#print ("Im creating", K, "zombies")
 					for idwalker in range(1, K+1):
-						print ("Zombie", idwalker)
+						#print ("Zombie", idwalker)
 						peer.num_msg_find_outgoing += 1
 						peer.bytescount_outgoing += sys.getsizeof(peer.pid) + sys.getsizeof(peer.name) + sys.getsizeof(peer.nmax) + sys.getsizeof(len(peer.nlist)) + sys.getsizeof(peer.msgid)+ sys.getsizeof(TTL) + sys.getsizeof(1)+ sys.getsizeof(peer.pid) + sys.getsizeof(lookingfor)
 						
-						print ("I am adding the missing elements of klist regarding the active neighbours on nlist")						
+						#print ("I am adding the missing elements of klist regarding the active neighbours on nlist")						
 						
 						for pid in peer.nlist:
-							print ("I'm treating with the neighbour",pid)
+							#print ("I'm treating with the neighbour",pid)
 							
 							if ((pid, lookingfor)) in peer.klist.keys():
-								print ("I have this item:", (pid, lookingfor), "with value", peer.klist[(pid, lookingfor)], "on klist")
-										
+								#print ("I have this item:", (pid, lookingfor), "with value", peer.klist[(pid, lookingfor)], "on klist")
+								pass
+							
 							else:
 								peer.klist[(pid, lookingfor)] = 0
-								print ("I dont have this item:", (pid, lookingfor), "on klist so im adding with value", peer.klist[(pid, lookingfor)])
-								
-						print ("klist",peer.klist)
+								#print ("I dont have this item:", (pid, lookingfor), "on klist so im adding with value", peer.klist[(pid, lookingfor)])
 						
-						print ("Now I'm choosing only items that have looked for", lookingfor)
+						#print ("klist",peer.klist)
+						
+						#print ("Now I'm choosing only items that have looked for", lookingfor)
 						candidates = {}
 						for (pid,k),numbers in peer.klist.items():
 							if lookingfor == k:
 								candidates[pid] = numbers
-						print ("Candidates to send the k-Walker")
-						print (candidates)
+						#print ("Candidates to send the k-Walker")
+						#print (candidates)
 						
 						p = min(candidates, key=candidates.get)
 						
 						# POSSIBLE IMPROVEMENT: IF WE HAVE MORE THAN 1 MIN PID, DISCARD THE LAST SENDER (IF IT IS INSIDE)
 						
 						peer.klist[(p, lookingfor)] += 1
-						print ("I have choose", p, "to send the kwalker. So, I added 1 to its number of sent msgs:", peer.klist[(p, lookingfor)])
+						#print ("I have choose", p, "to send the kwalker. So, I added 1 to its number of sent msgs:", peer.klist[(p, lookingfor)])
 						
-						print ("I am sending a random k-walker to", p)
+						#print ("I am sending a random k-walker to", p)
 
 						peer.out.send_msg(dest=p, msgname='kfind', msgargs=(peer.pid, peer.name, peer.nmax, len(peer.nlist), peer.msgid, TTL, 1, lookingfor, idwalker, 1, path))
 	
 
-				print ("Im exiting of kfind")
+				#print ("Im exiting of kfind")
 	else:
 		print ("Don't have neighbours :(")
 	
@@ -209,21 +210,23 @@ def report():
 	print ("Incoming and outgoing messages:", peer.num_msg_find_incoming + peer.num_msg_find_outgoing)
 	print ("Bytes transferred through this Peer:",peer.bytescount_incoming + peer.bytescount_outgoing)
 
-def totreport(*peers):
+def totreport(reset=False):
+	if type(reset)==str:
+		reset = eval(reset)
 	with peer.plock:
 		peer.totreport_waited_answers = 0
 		peer.totreport_answers = []
-		peer_names = list(peers) if peers else [ p[0] for p in peer.plist.values() ] + [ peer.name ]
+		peer_names = [ p[0] for p in peer.plist.values() ] + [ peer.name ]
 		for name in peer_names:
 			if name == peer.name:
 				# Send request message to myself (trick to have my neighbours too)
-				peer.out.send_msg(dest=peer.pid, msgname='get_report', msgargs=())
+				peer.out.send_msg(dest=peer.pid, msgname='get_report', msgargs=(reset,))
 				peer.totreport_waited_answers += 1
 				continue
 			
 			for p,(n,m,l,d,s,r) in peer.plist.items():
 				if n==name:
-					peer.out.send_msg(dest=p, msgname='get_report', msgargs=())
+					peer.out.send_msg(dest=p, msgname='get_report', msgargs=(reset,))
 					peer.totreport_waited_answers += 1
 					break
 			else:
@@ -323,8 +326,9 @@ class Client(threading.Thread):
 			s = xmlrpc.client.ServerProxy('http://' + dest)
 			try:
 				getattr(s, msgname).__call__(self.peer.pid, self.peer.name, self.peer.nmax, len(self.peer.nlist), *msgargs)
-			except socket.error:
+			except socket.error as err:
 				print ("ERROR CONNECTION REFUSED")
+				print (err)
 				self.peer.__remove_peer__(dest)
 				#~ with self.peer.plock:
 					#~ if dest in self.peer.plist:
@@ -667,28 +671,28 @@ class Peer(object):
 		self.__update_timer__(senderpid, sendername, sendernmax, senderl)
 		msg_size_bytes = sum([ sys.getsizeof(x) for x in [ e[1] for e in locals().items() if e[0] != 'path' ] ])
 		
-		print ("--------------------kfind WALKER", idwalker,"TTL",  TTL, "HOP NUMBER", hops, "--------------------")
+		#print ("--------------------kfind WALKER", idwalker,"TTL",  TTL, "HOP NUMBER", hops, "--------------------")
 		# Increasing the number of received messages and the counting of incoming total bytes
 		with self.plock:
 			self.num_msg_find_incoming += 1
 			self.bytescount_incoming += msg_size_bytes
 			#self.bytescount_incoming += sys.getsizeof(sourcepid) + sys.getsizeof(name) + sys.getsizeof(nmax) + sys.getsizeof(l) + sys.getsizeof(msgid)+ sys.getsizeof(TTL) + sys.getsizeof(count_this_msg)+ sys.getsizeof(senderpid) + sys.getsizeof(lookingfor)
-		print ("Im in kfind function looking for", lookingfor)
+		#print ("Im in kfind function looking for", lookingfor)
 		
 		path.append(self.name)
 		
-		print ("------ ACTUAL PATH OF KWALKER ------ ")
-		for index, item in enumerate(path):
-			print (index,item)
+		#print ("------ ACTUAL PATH OF KWALKER ------ ")
+		#for index, item in enumerate(path):
+		#	print (index,item)
 		
 		#s = '->'.join(path)
 		#print (s)
 		
-		print ("Im looking if I have the file that", sourcename, "is looking for")
+		#print ("Im looking if I have the file that", sourcename, "is looking for")
 		
 		TTL -= 1
 		if (lookingfor == self.name):
-			print ("##I have the file so Im sending a response to", sourcename)
+			#print ("##I have the file so Im sending a response to", sourcename)
 			self.out.send_msg(dest=sourcepid, msgname='found', msgargs=(count_this_msg, path), track=True)
 			
 			# Increasing the number of sent messages
@@ -702,10 +706,10 @@ class Peer(object):
 			#	self.out.send_msg(dest=sourcepid, msgname='checkHops', msgargs=(self.pid, lookingfor), track=True)
 				######## UNTIL WE DONT HAVE A RESPONSE FROM sourcepid WE CANT CONTINUE
 
-			print ("I don't have the file, so im going to send the search through all my neigbours")
+			#print ("I don't have the file, so im going to send the search through all my neigbours")
 			for pid in self.nlist:
 				if (self.plist[pid][0] == lookingfor):
-					print ("One of my neighbours have the file! I only forward the kfind message to him")
+					#print ("One of my neighbours have the file! I only forward the kfind message to him")
 					self.out.send_msg(dest=pid, msgname='kfind', msgargs=(sourcepid, sourcename, sourcenmax, sourcel, msgid, TTL, count_this_msg+1, lookingfor, idwalker, hops + 1, path), track=True)
 					# Increasing the number of sent messages
 					#with self.plock:
@@ -717,27 +721,27 @@ class Peer(object):
 		
 				with self.plock:
 					
-					print ("I am adding the missing elements of klist regarding the active neighbours on nlist")						
+					#print ("I am adding the missing elements of klist regarding the active neighbours on nlist")						
 					
 					for pid in self.nlist:
-						print ("I'm treating with the neighbour",pid)
+						#print ("I'm treating with the neighbour",pid)
 						
 						if ((pid, lookingfor)) in self.klist.keys():
-							print ("I have this item:", (pid, lookingfor), "with value", self.klist[(pid, lookingfor)], "on klist")
-									
+							#print ("I have this item:", (pid, lookingfor), "with value", self.klist[(pid, lookingfor)], "on klist")
+							pass	
 						else:
 							self.klist[(pid, lookingfor)] = 0
-							print ("I dont have this item:", (pid, lookingfor), "on klist so im adding with value", self.klist[(pid, lookingfor)])
+							#print ("I dont have this item:", (pid, lookingfor), "on klist so im adding with value", self.klist[(pid, lookingfor)])
 							
-					print ("klist",self.klist)
+					#print ("klist",self.klist)
 					
-					print ("Now I'm choosing only items that have looked for", lookingfor)
+					#print ("Now I'm choosing only items that have looked for", lookingfor)
 					candidates = {}
 					for (pid,k),numbers in self.klist.items():
 						if lookingfor == k:
 							candidates[pid] = numbers
-					print ("Candidates to send the k-Walker")
-					print (candidates)
+					#print ("Candidates to send the k-Walker")
+					#print (candidates)
 					
 					min_pid = min(candidates, key=candidates.get)
 					# Convert P into a list with the peers with the minimun values
@@ -749,14 +753,15 @@ class Peer(object):
 					# POSSIBLE IMPROVEMENT: IF WE HAVE MORE THAN 1 MIN PID, DISCARD THE LAST SENDER (IF IT IS INSIDE)
 					
 					self.klist[(p, lookingfor)] += 1
-					print ("I have choose", p, "to send the kwalker. So, I added 1 to its number of sent msgs:", self.klist[(p, lookingfor)])
+					#print ("I have choose", p, "to send the kwalker. So, I added 1 to its number of sent msgs:", self.klist[(p, lookingfor)])
 					
-					print ("I am sending a random k-walker to", p)
+					#print ("I am sending a random k-walker to", p)
 					self.out.send_msg(dest=p, msgname='kfind', msgargs=(sourcepid, sourcename, sourcenmax, sourcel, msgid, TTL, count_this_msg+1, lookingfor, idwalker, hops + 1, path), track=True)
 	
 		else:
-			print ("Seems that TTL is 0, then I don´t spread the search anymore")
-		print ("--------------------EXITING kfind WALKER", idwalker,"TTL", TTL, "--------------------")
+			#print ("Seems that TTL is 0, then I don´t spread the search anymore")
+			pass
+		#print ("--------------------EXITING kfind WALKER", idwalker,"TTL", TTL, "--------------------")
 	
 	def get(self, sourcepid, name, nmax, l, lookingfor):
 		self.__update_timer__(sourcepid, name, nmax, l)
@@ -880,7 +885,7 @@ class Peer(object):
 			if len(self.nlist_answers) == self.nlist_waited_answers:
 				nlist_dot_graph(self.nlist_answers)
 	
-	def get_report(self, senderpid, name, nmax, l):
+	def get_report(self, senderpid, name, nmax, l, reset):
 		self.__update_timer__(senderpid, name, nmax, l)
 		"""
 		Another peer has asked me my reports.
@@ -891,6 +896,8 @@ class Peer(object):
 				msgname='send_report',
 				msgargs=(self.num_msg_find_incoming, self.num_msg_find_outgoing, self.bytescount_incoming, self.bytescount_outgoing)
 			)
+			if reset:
+				self.num_msg_find_incoming = self.num_msg_find_outgoing = self.bytescount_incoming = self.bytescount_outgoing = 0
 	
 	def send_report(self, senderpid, name, nmax, l, nmsg_in, nmsg_out, nbytes_in, nbytes_out):
 		self.__update_timer__(senderpid, name, nmax, l)
@@ -925,26 +932,27 @@ if __name__=='__main__':
 		'init':			[ init, (), 'Initialize a peer (not the super peer). Must be called only once!' ],
 		'whoami':		[ whoami, (), 'Prints the peer''s identity.' ],
 		'seen':			[ seenmsgs, (), 'Prints the messages seen by this peer.' ],
-		'wait':			[ wait, (), 'It blocks the shell. You''ll need to kill the peer to exit.' ],
+		'wait':			[ wait, (), 'It blocks the shell. You\'ll need to kill the peer to exit.' ],
 		'stop':			[ stop, (), 'Stops all the peer activities and exits the shell.' ],
 		
 		'hello':		[ hello, (), 'Enters an existing network, via a known peer.' ],
-		'plist':		[ plist, (), '_Prints the list of know peers.' ],
+		'plist':		[ plist, (), 'Prints the list of known peers.' ],
 		'nlist':		[ nlist, (), 'Prints the list of neighbours of the given peers.' ],
-		'find':			[ find, (), 'Look for a file in the neighbourhood.' ],
+		'find':			[ find, (), 'Looks for a file using flooding on the overaly network.' ],
 		'report': 		[ report, (), 'Show the incoming and outgoing number of messages for find.'],
-		'totreport':	[ totreport, (), ''],
-		'restart_report':[ restart_report, (), 'Restart the measurements of the report.'],
-		'get':			[ get, (), 'Request a item to a peer'],
-		'kfind':		[ kfind, (), 'Look for a file with zombie style.']
+		'totreport':	[ totreport, (), 'Gather report measurements from each known peer. If reset=True, it forces every peer to reset.'],
+		'restart_report':[ restart_report, (), 'Restarts the report measurements of the local peer.'],
+		'get':			[ get, (), 'Requests an item to a peer'],
+		'kfind':		[ kfind, (), 'Looks for a file using K-walkers.']
 	}
 	
 	def usage():
-		print('='*20 + ':')
-		print('Usage\n' + '='*20 + ':')
+		import inspect
+		print('='*40 + ':')
+		print('Usage' + ' '*35 + ': Description\n' + '='*40 + ':')
 		for c,specs in sorted(iter(commands.items()), key=lambda k_v: k_v[0]):
-			print('{:23}: {}'.format(c, specs[2]))
-		print('='*20 + ':')
+			print('{:40}: {}'.format(c+' <'+' '.join(inspect.getargspec(specs[0]).args)+'>', specs[2]))
+		print('='*40 + ':')
 	
 	def execute_command(c):
 		if c[0] in commands:
